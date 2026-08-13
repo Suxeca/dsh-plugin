@@ -1,0 +1,17 @@
+{
+  "name": "dsh-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DSH（DeepSeek Harness）自定义插件开发模板仓库：面向科研工作流的插件全家桶",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "new:package": "node scripts/new-package.mjs"
+  },
+  "devDependencies": {
+    "lightningcss": "^1.32.0",
+    "tsdown": "^0.22.2"
+  }
+}

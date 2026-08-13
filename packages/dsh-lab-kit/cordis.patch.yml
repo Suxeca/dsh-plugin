@@ -1,0 +1,10 @@
+# dsh-lab-kit bundle patch: inserts the plugin row into the web profile
+# roster. Install with `dsh plugin --profile <name> add <path-or-git-url>`.
+#
+# The single row mounts BOTH halves: the node half (exports ".") runs in the
+# host process (the /lab-kit/* HTTP routes + the system-prompt announcement),
+# and the `dsh.client` declaration in package.json makes the browser half
+# (exports "./client", served at /plugins/<id>/client.js) load in the web GUI.
+- insert:
+    - id: lab-kit
+      name: '@deepseek-ai/dsh-lab-kit'

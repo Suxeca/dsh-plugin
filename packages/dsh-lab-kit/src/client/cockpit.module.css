@@ -1,0 +1,186 @@
+/**
+ * Lab-kit cockpit styles. Scoped by the plugin's own data attributes so
+ * nothing leaks into the rest of the GUI; colors ride the dsh --dsw-* tokens
+ * so the cockpit follows the active theme (light/dark and skins).
+ */
+
+/* --- center-column takeover (global rules, attribute-scoped) ----------------- */
+
+[data-pane='conversation'] {
+  position: relative;
+}
+
+/* The cockpit container rides inside the conversation grid item as an extra
+   trailing child; hidden unless the cockpit is active. */
+[data-dsh-labkit-view] {
+  position: absolute;
+  inset: 0;
+  display: none;
+  z-index: 5;
+}
+
+html[data-dsh-labkit-active] [data-dsh-labkit-view] {
+  display: block;
+}
+
+/* While the cockpit is active, the conversation content underneath is hidden
+   (it stays mounted and stateful). */
+html[data-dsh-labkit-active] [data-pane='conversation'] > :not([data-dsh-labkit-view]) {
+  display: none;
+}
+
+/* --- sidebar entry row ------------------------------------------------------- */
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.entry:hover {
+  background: var(--dsw-specific-sidebar-nav-item-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.entry[data-active] {
+  background: var(--dsw-specific-sidebar-nav-item-active);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.entryIcon {
+  display: inline-flex;
+}
+
+/* --- cockpit panel ------------------------------------------------------------ */
+
+.panel {
+  height: 100%;
+  padding: 20px 24px;
+  overflow-y: auto;
+  background: var(--dsw-alias-surface-base);
+  color: var(--dsw-alias-label-primary);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.headerActions {
+  display: flex;
+  gap: 8px;
+}
+
+.button {
+  padding: 4px 10px;
+  border: 1px solid var(--dsw-alias-border-strong);
+  border-radius: 6px;
+  background: var(--dsw-alias-surface-raised);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--dsw-specific-sidebar-nav-item-hover);
+}
+
+.status {
+  padding: 24px 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
+  text-align: center;
+}
+
+.error {
+  color: var(--dsw-alias-danger);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-weak);
+  border-radius: 8px;
+  background: var(--dsw-alias-surface-raised);
+}
+
+.cardMain {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cardName {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cardMeta {
+  display: flex;
+  gap: 4px;
+}
+
+.badge {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--dsw-specific-sidebar-nav-item-active);
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.cardFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.cardPath {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardTime {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}

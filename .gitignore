@@ -1,0 +1,10 @@
+# /lib and /node_modules per package
+lib/
+node_modules/
+
+# pnpm
+.pnpm-store/
+
+# misc
+*.log
+.DS_Store

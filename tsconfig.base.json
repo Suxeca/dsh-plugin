@@ -1,0 +1,28 @@
+{
+  // Shared TypeScript program for every plugin package: host + client halves
+  // compile together (composite), emitting declarations to lib/types which
+  // tsdown consumes for the Node and browser bundles.
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    // ${configDir} resolves relative to each extending package's own
+    // tsconfig.json (TS ≥5.5), so a shared base can anchor src/lib paths.
+    "rootDir": "${configDir}/src",
+    "outDir": "${configDir}/lib/types",
+    "types": ["node"]
+  }
+}
