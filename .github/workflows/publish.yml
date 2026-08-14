@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Complete history: release scripts may read tags.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -44,9 +44,11 @@ jobs:
         with:
           version: 11
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          # pnpm 11 requires node:sqlite (Node ≥ 22.5); match the harness
+          # release flow's primary Node version.
+          node-version: 24
           # The publish step resolves credentials through this registry URL.
           registry-url: 'https://registry.npmjs.org'
 
