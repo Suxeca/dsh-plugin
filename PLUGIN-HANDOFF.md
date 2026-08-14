@@ -128,3 +128,13 @@ curl -s -X POST http://127.0.0.1:3080/api/workspace.unarchiveSession \
 - ⚠️ **分支会话可见性（rc.3 修复）**：fork 出来的分支对话有 `parentSessionId` 但 `origin` 非 'subagent'，侧边栏当普通行显示；插件曾按 `parentId` 过滤把它们藏掉。可见性规则 = 侧边栏 tree.ts 的 `sessionVisible`：只隐藏 subagent-origin/归档/非当前 blank
 - 日常发版：改版本号 → `git tag dsh-vX.Y.Z && git push origin dsh-vX.Y.Z` → CI 自动发布 + 提升 latest，无需 OTP
 - 本地开发副本 `~/Workspace/dsh-plugin/packages/dsh-client-ui-session-switcher/` 保留作开发用；要预览本地改版需先卸载 npm 版再 `add` link 版
+
+## 10. 插件管理器交付（2026-08-14）
+
+- 包名：**`@suxeca/dsh-plugin-manager`**，`0.1.0-rc.4`（tag 命名空间与 session-switcher 共享，rc.1–rc.3 已被占用故从 rc.4 起），经 `dsh-v0.1.0-rc.4` tag 由 CI 发布（`next` + 提升 `latest`）
+- 功能：`/plugin` 人类命令（list / install / uninstall / status）+ 设置页「插件管理」（settings.section，order 40：列表/卸载/安装/刷新）+ `/plugin-manager/*` JSON 路由 + `ctx.pluginManager` 服务
+- 架构：host 半原生 Node（直接 `process.env`/`os.homedir()` 定位 `~/.dsh/profiles/web/package.json`，`node:fs` 读写，**不受文件沙箱限制**——动态版做不到）；client 半走官方 `settings.section` 插槽 + fetch 路由
+- 设计原则：**故意不注册模型工具**——命令/路由不进模型工具集，激活/重载不击穿 turn 内前缀缓存（呼应 discussion #935）；安装/卸载=改 profile 后重启生效（工具集变化落在进程边界）
+- 版本历史：动态原型 `pmgr-2`（本会话，cordis_define/run，进程重启即失）→ 静态正式版 `packages/dsh-plugin-manager/`
+- ⚠️ 若本机同时跑动态版 pmgr-2 与静态版：`/plugin` 命令与设置页会重复注册（id 不同不冲突但功能重复）——装静态版前先 `cordis_stop pmgr-2`（或重启后不复活动态版）
+- CI 已泛化：publish.yml 按 tag 版本匹配 packages/* 下所有 `dsh.bundle` 包，命中者 build/test/publish/promote；`dsh plugin add @suxeca/dsh-plugin-manager` 即可安装
