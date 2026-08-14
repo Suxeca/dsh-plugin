@@ -13,7 +13,6 @@ node_modules/
 .dsh-undo/
 
 # 🔒 私人材料：含真实网络拓扑或仅供本机使用的补丁，永不入库
-docs/remote-access.md
 packages/dsh-secure-context-polyfill/
 
 # 本机正在使用的 better-sidebar 修订快照；只在 README 记录官方上游，
