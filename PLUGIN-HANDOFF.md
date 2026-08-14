@@ -120,9 +120,11 @@ curl -s -X POST http://127.0.0.1:3080/api/workspace.unarchiveSession \
 
 ## 9. npm 发布状态（2026-08-14 最终）
 
-- 包名：**`@suxeca/dsh-client-ui-session-switcher`**，**已发布 `0.1.0-rc.1`**（npmjs，dist-tags: next/latest）——用户自有 scope，可自行发布；原 `@deepseek-ai/...` 是官方 org，外部账号无发布权
-- 发布流水线：仓库 `Suxeca/dsh-plugin`，`dsh-v*` tag → GitHub Actions 自动 install/build/test/publish（对齐 harness release.yml 惯例）。**CI 全链路已验证通过**（NPM_TOKEN = 粒化 token + `--bypass-2fa`，2FA 账号自动化发布必需）
+- 包名：**`@suxeca/dsh-client-ui-session-switcher`**，已发布 `0.1.0-rc.1 → rc.2 → rc.3`（npmjs，`latest`/`next` 均指向最新版——工作流发布后自动提升 latest，裸 `dsh plugin add <包名>` 永远拿到最新修复版）
+- 发布流水线：仓库 `Suxeca/dsh-plugin`，`dsh-v*` tag → GitHub Actions 自动 install/build/test/publish + promote latest（对齐 harness release.yml 惯例）。**CI 全链路已验证**（NPM_TOKEN = 粒化 token + `--bypass-2fa`，2FA 账号自动化发布必需）
 - **profile 已切换到 npm 版**：`~/.dsh/profiles/web` 的 bundles/dependencies 只留 `@suxeca/...`，旧的 `@deepseek-ai/dsh-client-ui-session-switcher` link 条目已删除
 - ⚠️ **踩坑（务必记住）**：同一插件不能同时以两个来源留在 bundles——旧 link 版和新 npm 版的 cordis.patch.yml 都 insert `id: ui-session-switcher`，会 duplicate loader entry id 导致面板消失（Ctrl+K 唤不出）。换源必须**先卸载旧条目**再装新条目
-- 日常发版：改版本号 → `git tag dsh-vX.Y.Z && git push origin dsh-vX.Y.Z` → CI 自动发布，无需 OTP
+- ⚠️ **React #185 踩坑（rc.2 修复）**：keymapStore.getSnapshot 每次返回新对象违反 useSyncExternalStore 稳定性契约 → 无限重渲染、面板整体消失（Ctrl+K/Alt+K 全失效）。外部 store 的 getSnapshot 必须缓存快照、仅变更时重建
+- ⚠️ **分支会话可见性（rc.3 修复）**：fork 出来的分支对话有 `parentSessionId` 但 `origin` 非 'subagent'，侧边栏当普通行显示；插件曾按 `parentId` 过滤把它们藏掉。可见性规则 = 侧边栏 tree.ts 的 `sessionVisible`：只隐藏 subagent-origin/归档/非当前 blank
+- 日常发版：改版本号 → `git tag dsh-vX.Y.Z && git push origin dsh-vX.Y.Z` → CI 自动发布 + 提升 latest，无需 OTP
 - 本地开发副本 `~/Workspace/dsh-plugin/packages/dsh-client-ui-session-switcher/` 保留作开发用；要预览本地改版需先卸载 npm 版再 `add` link 版
