@@ -1,0 +1,67 @@
+# Publish the session-switcher bundle to npm on a dsh-v* tag push —
+# mirroring the deepseek-harness release convention (release.yml):
+# pack/build on every push, publication from a `dsh-v*` tag.
+#
+# Usage:
+#   git tag dsh-v0.1.0-rc.1   # tag must match the package version you publish
+#   git push origin dsh-v0.1.0-rc.1
+#
+# Prerequisite: an npmjs token with publish rights for the @deepseek-ai scope
+# stored as the repository secret `NPM_TOKEN`.
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'dsh-v*'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 手动发布（须处于 dsh-v* tag）
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish @deepseek-ai/dsh-client-ui-session-switcher
+    runs-on: ubuntu-latest
+    steps:
+      # Complete history: release scripts may read tags.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          # The publish step resolves credentials through this registry URL.
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm --filter @deepseek-ai/dsh-client-ui-session-switcher build
+
+      - name: Test
+        run: pnpm --filter @deepseek-ai/dsh-client-ui-session-switcher test
+
+      # `prepublishOnly` rebuilds lib/ right before publishing; the tarball
+      # then ships prebuilt code (see docs/develop/basic/publish).
+      - name: Publish to npm
+        run: pnpm --filter @deepseek-ai/dsh-client-ui-session-switcher publish --no-git-checks --access public --tag next
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
