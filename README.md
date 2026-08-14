@@ -13,7 +13,6 @@
 | 科研台 Lab Cockpit | `@deepseek-ai/dsh-lab-kit`（本仓库） | 侧边栏「研究台」扫描展示工作区研究项目 | 本地 link | ✅ 在用 |
 | 视觉工具箱 | `@dsh-external/dsh-vision-toolkit`（[submodule](third-party/dsh-vision-toolkit)） | 原生视觉工具：识图、OCR、像素级定位、UI 还原 | 本地 link | ✅ 在用 v0.1.6 |
 | 记忆系统 | `sage-mem`（[submodule](third-party/sage-mem)） | 跨会话记忆：自动沉淀 + 检索注入，中文优先 | 本地 link | ✅ 在用 |
-| dsh-web-ui 全家桶 | `@deepseek-ai/dsh-*-*`（[submodule](third-party/dsh-web-ui)） | 任务看板 / Git 图谱 / 右侧面板 / 鲸鱼娘宠物 / 令牌统计 / 移动端远程 / SSH 远程 / 皮肤中心 | 本地 link | ✅ 可选安装 |
 
 ## 自研插件（本仓库 `packages/`）
 
@@ -71,20 +70,6 @@ pnpm dsh plugin --profile web add link:~/Workspace/dsh-plugin/packages/dsh-lab-k
 - 上游：<https://github.com/gezi-wen/sage-mem>
 - 架构：DSH 插件 → HTTP → Bun 常驻 worker → SQLite（FTS5 trigram）
 
-### 6. dsh-web-ui 全家桶 · 皮肤与功能插件集合
-
-- **任务看板**：五列状态看板，卡片由真实 DSH 会话执行，支持 cron 定时执行
-- **Git 图谱**：分支选择器 + 泳道提交历史可视化
-- **右侧面板**：文件树 / 多标签预览（markdown、代码、diff、CSV、PDF、Office…）/ git 变更面板（stage / unstage / discard）
-- **鲸鱼娘宠物**：常驻界面的互动宠物（摸头、投喂、亲密度成长）
-- **实时令牌统计**：TPS、LLM 耗时、上下文占用、缓存命中、token 数
-- **移动端远程**：扫码配对，手机远程控制 dsh web 工作区（cloudflared 公网隧道可选）
-- **远程连接**：SSH 运维面板——Web 终端 / SFTP 传输 / 端口转发 / 集群并发执行 / Agent 直连
-- **设置中心**：全部插件开关参数统一收纳
-- **皮肤中心**：7 款皮肤（Windows XP / Minecraft / Blue Fantasy / Dragon Heir / QQ98 / THS / 鲸吟），先试穿再应用；`dsh-skin` 脚本管理 `~/.dsh/cordis.patch.yml`
-
-- 上游：<https://github.com/zhu1090093659/dsh-web-ui>
-
 ## 目录结构
 
 ```
@@ -95,7 +80,6 @@ packages/                  # 本仓库自研插件（monorepo，tsdown 构建 + 
 third-party/               # git submodule：收录的在用插件
   dsh-vision-toolkit/
   sage-mem/
-  dsh-web-ui/
 docs/DEVELOPMENT.md        # 插件开发指南（新建包、构建、安装、扩展点速查）
 ```
 

@@ -6,6 +6,3 @@
 	path = third-party/sage-mem
 	url = https://github.com/gezi-wen/sage-mem.git
 	branch = main
-[submodule "third-party/dsh-web-ui"]
-	path = third-party/dsh-web-ui
-	url = https://github.com/zhu1090093659/dsh-web-ui.git
