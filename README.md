@@ -11,6 +11,8 @@
 | 会话切换面板 | `@suxeca/dsh-client-ui-session-switcher`（本仓库） | Ctrl+K 调色板切换对话，Ctrl+[ / ] 按侧边栏顺序循环 | npm | ✅ 已发布 rc.3 |
 | 插件管理器 | `@suxeca/dsh-plugin-manager`（本仓库） | `/plugin` 命令 + 设置页列出/安装/卸载插件 | npm | ✅ 已发布 rc.4 |
 | 科研台 Lab Cockpit | `@deepseek-ai/dsh-lab-kit`（本仓库） | 侧边栏「研究台」扫描展示工作区研究项目 | 本地 link | ✅ 在用 |
+| Better Sidebar 工作台 | [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) | 文件管理/编辑预览/PDF/终端/Git/浏览器/任务面板 | npm / GitHub | ✅ 在用 v0.12.x |
+| 安全上下文补丁 | 私人本地插件（源码不入库） | 浏览器兼容补丁：polyfill 缺失的 `crypto.randomUUID` / `AbortSignal.timeout` / `AbortSignal.any` | 私人本地 link | ✅ 在用 |
 | 视觉工具箱 | `@dsh-external/dsh-vision-toolkit`（[submodule](third-party/dsh-vision-toolkit)） | 原生视觉工具：识图、OCR、像素级定位、UI 还原 | 本地 link | ✅ 在用 v0.1.6 |
 | 记忆系统 | `sage-mem`（[submodule](third-party/sage-mem)） | 跨会话记忆：自动沉淀 + 检索注入，中文优先 | 本地 link | ✅ 在用 |
 | 对话分享 | `@bill9109/dsh-conversation-share`（[submodule](third-party/dsh-conversation-share)） | 选取对话片段分享为品牌化 PNG 长图 | GitHub 源 | ✅ 在用 v0.1.1 |
@@ -50,33 +52,56 @@ npm: `@suxeca/dsh-plugin-manager@0.1.0-rc.4`。
 侧边栏「研究台」入口：扫描工作区目录（识别 `.git` 或 `.summary.md`），按最近修改排序展示研究项目列表；host 经 `/lab-kit/projects` 路由提供 JSON。
 
 ```sh
-pnpm dsh plugin --profile web add link:~/Workspace/dsh-plugin/packages/dsh-lab-kit
+pnpm dsh plugin --profile web add link:<repo>/packages/dsh-lab-kit
 ```
 
 本地 link 安装（`private`，未发布 npm）。
 
+### 4. 浏览器兼容补丁（🔒 私人使用，源码不入库）
+
+纯 Client 私人插件；本仓库**只记录原理，不收录源码、包名、安装路径或网络部署信息**。DSH 前端直接调用若干较新的浏览器 Web API，在部分访问环境下缺失会导致目录选择器、附件草稿与 RPC 调用等功能崩溃：
+
+- `crypto.randomUUID` —— **secure-context-only** API（仅 HTTPS / loopback 存在），纯 HTTP 非本机地址下为 `undefined`
+- `AbortSignal.timeout`（2022）、`AbortSignal.any`（2023）—— 旧引擎 / 嵌入式 WebView 缺失
+
+**原理**：插件在浏览器侧按原生语义安装等价实现，幂等（原生存在时跳过）：
+- `crypto.randomUUID` → `crypto.getRandomValues` 构造 RFC 4122 UUID v4（version/variant 位正确）
+- `AbortSignal.timeout(ms)` → 一次性定时器 + `AbortController`，abort 时 reason 为 `TimeoutError`，abort 后清除定时器
+- `AbortSignal.any(signals)` → `AbortController` 组合，任一输入 abort 即 abort，reason 取首个 abort 输入
+
+对应上游社区讨论：[#514](https://github.com/deepseek-ai/deepseek-harness/discussions/514) / [#1050](https://github.com/deepseek-ai/deepseek-harness/discussions/1050)。上游原生兼容后可移除该私人补丁。
+
 ## 收录插件（`third-party/` submodule）
 
-### 4. dsh-vision-toolkit · 视觉工具箱
+### 5. dsh-vision-toolkit · 视觉工具箱
 
-把 [agent-vision-toolkit](https://github.com/Anionex/agent-vision-toolkit) 带入 DSH 的原生 Profile Bundle：给纯文本 agent 装上眼睛——意图感知识图问答、OCR、原始像素定位、UI 还原、像素级验证、Artifact 管理与 Web 设置，10 个独立工具，按需渐进暴露（本机经本地 CLI Proxy API `127.0.0.1:8317` + `gpt-5.6-luna` 驱动）。
+把 [agent-vision-toolkit](https://github.com/Anionex/agent-vision-toolkit) 带入 DSH 的原生 Profile Bundle：给纯文本 agent 装上眼睛——意图感知识图问答、OCR、原始像素定位、UI 还原、像素级验证、Artifact 管理与 Web 设置，10 个独立工具，按需渐进暴露。
 
 - 上游：<https://github.com/Anionex/dsh-vision-toolkit>（v0.1.6，MIT，162 测试）
 - 安装：`dsh plugin --profile web add @anionex/dsh-vision-toolkit`
 
-### 5. sage-mem · DSH 记忆系统
+### 6. sage-mem · DSH 记忆系统
 
 跨会话记忆：监听 DSH 事件流，工具调用自动沉淀，LLM 压缩为结构化记忆（事实/摘要，中文输出）；新会话启动自动检索注入。**中文优先**——worker 用 trigram 分词 + 短词 LIKE 兜底，中文检索全命中（FTS5 默认分词器对中文 0 命中）。fork 自 [claude-mem](https://github.com/thedotmack/claude-mem)（Apache-2.0）加中文修复，DSH 侧仅一个轻量桥接插件。
 
 - 上游：<https://github.com/gezi-wen/sage-mem>
 - 架构：DSH 插件 → HTTP → Bun 常驻 worker → SQLite（FTS5 trigram）
 
-### 6. dsh-conversation-share · 对话分享
+### 7. dsh-conversation-share · 对话分享
 
 在 DSH Web 会话流中选取一段对话范围（可拖拽、磁吸对齐的范围标记），一键导出为**品牌化 PNG 长图**分享——适合把关键对话/结论发到飞书、微信、汇报材料。
 
 - 上游：<https://github.com/bill9109/dsh-conversation-share>（v0.1.1，GitHub 源安装，未发布 npm）
 - 安装：`dsh plugin --profile web add github:bill9109/dsh-conversation-share`
+
+### 8. dsh-better-sidebar · 文件预览与右侧工作台
+
+VSCode 风格右侧栏 + 底部面板：文件树、文本/Markdown/图片/PDF 预览与编辑、真实终端、Git、内嵌浏览器、后台任务和第三方 Tab/文件查看器扩展接口。
+
+- 上游：<https://github.com/omdsh-dev/DSH-better-sidebar>（本机使用 v0.12.x）
+- 安装：`dsh plugin --profile web add dsh-better-sidebar`
+- **高权限边界**：Host 侧具备文件读写、PTY shell、Git 和浏览器能力；它不是只读预览器。仅应安装在受信任的 DSH 实例和严格受控的网络访问边界内。
+- 本机当前目录含一份行为修订快照；README 只记录官方 GitHub 上游，不把该不可移植的本地 root commit 作为 submodule 发布。
 
 ## 目录结构
 
@@ -85,10 +110,11 @@ packages/                  # 本仓库自研插件（monorepo，tsdown 构建 + 
   dsh-client-ui-session-switcher/
   dsh-plugin-manager/
   dsh-lab-kit/
-third-party/               # git submodule：收录的在用插件
+third-party/               # 收录的在用插件（公开上游用 submodule；本地修订快照会被忽略）
   dsh-vision-toolkit/
   sage-mem/
   dsh-conversation-share/
+  dsh-better-sidebar/      # 本机修订快照（gitignored；官方上游见插件说明）
 docs/DEVELOPMENT.md        # 插件开发指南（新建包、构建、安装、扩展点速查）
 ```
 
@@ -118,5 +144,4 @@ pnpm build          # 构建全部插件
 ## 相关文档
 
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — 插件开发指南
-- [`PLUGIN-HANDOFF.md`](PLUGIN-HANDOFF.md) — 会话切换/插件管理器/科研台交付与踩坑记录
 - 上游参考：deepseek-harness `docs/`（cordis 教程、extension-cookbook、capability-seams）

@@ -1,6 +1,6 @@
 # DSH 会话管理插件 — 交接文档 (PLUGIN-HANDOFF)
 
-> 生成于 2026-08-13。本会话（<session-id>，cwd=~/Workspace）完成了 DSH Web GUI 的会话管理增强，因 dsh 架构中会话绑定创建时 cwd、无法迁移工作区，此文档把全部工作沉淀到 dsh-plugin 工作区，供后续会话无缝继续与分享。
+> 生成于 2026-08-13。一次本地开发会话完成了 DSH Web GUI 的会话管理增强；因 DSH 架构中会话绑定创建时 cwd、无法迁移工作区，此文档把工作沉淀到 dsh-plugin 工作区，供后续维护与分享。
 
 ## 1. 交付内容总览
 
@@ -20,7 +20,7 @@
 
 ### 2.1 客户端插件 `dsh-client-ui-session-switcher`
 
-- **位置**：`~/.dsh/profiles/node_modules/@deepseek-ai/dsh-client-ui-session-switcher/`（**真实目录**，非符号链接——这是刻意设计，见 §4）；**标准化源（本仓库）**：`~/Workspace/dsh-plugin/packages/dsh-client-ui-session-switcher/`——2026-08-13 起手写 bundle 已移植为 TS/TSX 源码 + CSS Module（皮肤走 CSS 变量）+ tsdown 构建 + cordis.patch.yml 注册 + 33 个 vitest 单测（见 §7 第 4 项）
+- **位置**：profile 的 `node_modules/@deepseek-ai/dsh-client-ui-session-switcher/`（**真实目录**，非符号链接——这是刻意设计，见 §4）；**标准化源（本仓库）**：`packages/dsh-client-ui-session-switcher/`——2026-08-13 起手写 bundle 已移植为 TS/TSX 源码 + CSS Module（皮肤走 CSS 变量）+ tsdown 构建 + cordis.patch.yml 注册 + 33 个 vitest 单测（见 §7 第 4 项）
 - **结构**：`package.json`（`dsh.client` 声明 + `exports["./client"]`）、`lib/index.js`（host 侧空 apply）、`lib/client.js`（浏览器 bundle，手写纯 JS，仅依赖 react/react-dom/client 平台模块）
 - **加载机制**：web profile 的 `cordis.patch.yml` 注册行 → host loader 加载 → `dsh-client-modules` 扫描 `dsh.client` 声明 → 编译 boot manifest → 浏览器按 `/plugins/<id>/client.js?rev=…` 拉取执行。**改 client.js 后刷新页面即生效，无需重启 harness**（服务端 no-cache 直供文件内容）。
 - **数据源**：`ctx.sessions.list`（快照形状 `{ids, byId, current, phase, …}`，条目字段 `id`/`displayTitle`/`parentId`/`origin`/`projectionValues`——**没有 `items` 字段**，与 npm 版不同！）与 `ctx.workspaces.list`（`{items, archivedSessionIds, phase, …}`）。
@@ -58,7 +58,7 @@ workspace 域 handler、内联 schema、`RpcMethodMap`（invoke 表）、`UNARY_
 
 ### 3.2 npm 缓存副本（旧版 dsh，备用）
 
-`~/.npm/_npx/<npx-cache-id>/node_modules/@deepseek-ai/` 下 dsh-workspace / dsh-host-apiproxy / dsh-client-connection / dsh-client-runtime 同样打过补丁（仓库版是主，此副本可能被 npm 清理，不再维护）。
+本机临时 npm/npx 缓存中的 dsh-workspace / dsh-host-apiproxy / dsh-client-connection / dsh-client-runtime 曾同步打过补丁（仓库版是主；缓存副本可能被 npm 清理，不再维护）。
 
 ### 3.3 Profile 层
 
@@ -67,8 +67,7 @@ workspace 域 handler、内联 schema、`RpcMethodMap`（invoke 表）、`UNARY_
 
 ## 4. 维护注意事项（踩过的坑，务必读）
 
-1. **不要用 npm/pnpm 重装 profile 树**。插件包是 profile node_modules 里的本地真实目录；npm exec 启动 dsh 会剪除 npx 缓存里"依赖树之外"的包（曾导致 ERR_MODULE_NOT_FOUND 崩溃）。启动用直接二进制：
-   `node ~/.npm/_npx/<npx-cache-id>/node_modules/.bin/dsh web`（或 `pnpm dsh web`，但别在 npx 缓存里放额外包）。
+1. **不要用 npm/pnpm 重装 profile 树**。插件包是 profile node_modules 里的本地真实目录；npm exec 启动 dsh 会剪除 npx 缓存里"依赖树之外"的包（曾导致 ERR_MODULE_NOT_FOUND 崩溃）。优先在 harness 仓库使用 `pnpm dsh --profile web` 启动，且不要在临时 npm/npx 缓存中放额外包。
 2. **仓库版改 host 代码后要重启 harness 才生效**；改 client bundle（浏览器端）刷新页面即可。
 3. **改 lib 必须同步改 src**：仓库构建会从 src 重新生成 lib；只改 lib 的话 `pnpm run build` 后丢失。改完跑 `pnpm --filter <pkg> exec tsc -b tsconfig.json` 验证。
 4. **RPC 加方法必须接全 6 处**（含 RpcMethodMap invoke 表），否则路由 404。
@@ -102,21 +101,21 @@ curl -s -X POST http://127.0.0.1:3080/api/workspace.unarchiveSession \
 - [ ] 接入 composer `/` 斜杠命令体系（`/会话` 打开面板，需接 ui-commands 服务）
 - [ ] 面板内多工作区新建选择（当前 `N` 固定建在当前工作区）
 - [ ] 归档视图显示会话原属工作区
-- [x] 把插件正式移植进仓库（已落 `~/Workspace/dsh-plugin/packages/dsh-client-ui-session-switcher/`：包骨架 + tsdown + cordis.patch.yml 注册 + 42 个 vitest 单测；profile 树手写 bundle 不再维护。激活方式：`dsh plugin --profile web add ~/Workspace/dsh-plugin/packages/dsh-client-ui-session-switcher` 后重启 dsh web）
+- [x] 把插件正式移植进仓库（已落 `packages/dsh-client-ui-session-switcher/`：包骨架 + tsdown + cordis.patch.yml 注册 + 42 个 vitest 单测；profile 树手写 bundle 不再维护。激活方式：`dsh plugin --profile web add link:<repo>/packages/dsh-client-ui-session-switcher` 后重启 dsh web）
 - [x] 移除悬浮「对话」按钮（用户反馈：Web 右键被页面自身菜单优先占用，按钮无实际用途；只留一次性 ready toast，文案改为纯快捷键）
 - [x] Ctrl+[ / Ctrl+] 改为严格按左侧栏可见顺序循环（v2：去掉「当前工作区优先」，改为工作区显示序 + 区内最近活动在前 + 未分组垫底；子会话以根会话位置为锚）
 - [x] 面板 v2：管理视图按工作区分节（分组头 + 计数），打开时默认选中当前会话
 - [x] 面板滚动跟随：↑↓ 选择（含打开时定位当前会话）自动滚动列表让选中行保持可见
-- [x] 部署进 profile（2026-08-14 直接在 `~/.dsh/profiles/node_modules/@deepseek-ai/dsh-client-ui-session-switcher/lib/` 覆盖 `client.js`/`client.js.map`/`index.js`——走 §2.1「改 client.js 刷新即生效」机制，无需重启 harness；浏览器 Ctrl+Shift+R 强刷即可）。如需走正式安装，仍可用 `dsh plugin --profile web add ~/Workspace/dsh-plugin/packages/dsh-client-ui-session-switcher` 后重启
+- [x] 部署进 profile（2026-08-14 直接在 profile 的插件 `lib/` 覆盖 `client.js`/`client.js.map`/`index.js`——走 §2.1「改 client.js 刷新即生效」机制，无需重启 harness；浏览器 Ctrl+Shift+R 强刷即可）。如需走正式安装，仍可用 `dsh plugin --profile web add link:<repo>/packages/dsh-client-ui-session-switcher` 后重启
 - [ ] 为 unarchiveSession 补仓库单测（CI per-file 100% 覆盖率）
 - [ ] 移除 ready toast 逻辑或改为配置项（现已 localStorage 一次）
 - [ ] 面板内操作失败提示已做（红字 4s）；可再加成功提示
 
 ## 8. 相关仓库
 
-- 官方：`~/Workspace/deepseek-harness`（36 个 client 插件；无同类会话切换插件，本插件是独一份）
-- 全家桶：`~/Workspace/dsh-web-ui`（dsh-ssh / task-board / git-graph / pet / live-stats / remote-web-ui / **skins 皮肤全家桶**——应用级皮肤，与面板级皮肤互补）
-- 本仓库（外部插件 monorepo）：`~/Workspace/dsh-plugin`（bundle 形态插件标准模板 + 会话切换器标准化版；模板说明见 `docs/DEVELOPMENT.md`）
+- 官方 harness 仓库（本地 checkout）：包含官方 client 插件；无同类会话切换插件
+- 历史 UI 全家桶仓库：dsh-ssh / task-board / git-graph / pet / live-stats / remote-web-ui / **skins 皮肤全家桶**——应用级皮肤，与面板级皮肤互补
+- 本仓库（外部插件 monorepo）：bundle 形态插件标准模板 + 会话切换器标准化版；模板说明见 `docs/DEVELOPMENT.md`
 
 ## 9. npm 发布状态（2026-08-14 最终）
 
@@ -138,6 +137,5 @@ curl -s -X POST http://127.0.0.1:3080/api/workspace.unarchiveSession \
 - 版本历史：动态原型 `pmgr-2`（本会话，cordis_define/run，进程重启即失）→ 静态正式版 `packages/dsh-plugin-manager/`
 - ⚠️ 若本机同时跑动态版 pmgr-2 与静态版：`/plugin` 命令与设置页会重复注册（id 不同不冲突但功能重复）——装静态版前先 `cordis_stop pmgr-2`（或重启后不复活动态版）
 - CI 已泛化：publish.yml 按 tag 版本匹配 packages/* 下所有 `dsh.bundle` 包，命中者 build/test/publish/promote
-- 安装命令（本机 dsh 在 npx 缓存，标准调用为 `pnpm dsh`——在 harness 仓库 `~/Workspace/deepseek-harness` 下执行）：
+- 安装命令（在 harness 仓库执行）：
   `pnpm dsh plugin --profile web add @suxeca/dsh-plugin-manager`
-  （等价：`~/.npm/_npx/<npx-cache-id>/node_modules/.bin/dsh plugin --profile web add @suxeca/dsh-plugin-manager`）
