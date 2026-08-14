@@ -119,6 +119,19 @@ describe('createKeymapStore', () => {
     expect(store.getSnapshot().capturing).toBe(false)
   })
 
+  it('returns a referentially stable snapshot between mutations (useSyncExternalStore contract)', () => {
+    const store = createKeymapStore()
+    expect(store.getSnapshot()).toBe(store.getSnapshot())
+    const before = store.getSnapshot()
+    store.beginCapture()
+    expect(store.getSnapshot()).not.toBe(before)
+    expect(store.getSnapshot()).toBe(store.getSnapshot())
+    const capturing = store.getSnapshot()
+    store.endCapture()
+    expect(store.getSnapshot()).not.toBe(capturing)
+    expect(store.getSnapshot()).toBe(store.getSnapshot())
+  })
+
   it('set persists, notifies, and ends capture', () => {
     const store = createKeymapStore()
     const listener = vi.fn()

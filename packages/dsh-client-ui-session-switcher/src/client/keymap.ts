@@ -168,16 +168,24 @@ export interface KeymapStore {
   endCapture(): void
 }
 
-/** Create the keymap store (loaded from localStorage, defaults on absence). */
+/**
+ * Create the keymap store (loaded from localStorage, defaults on absence).
+ *
+ * The snapshot is CACHED and only rebuilt on mutation: useSyncExternalStore
+ * requires a referentially stable getSnapshot (a fresh object per call makes
+ * React re-render forever — "Maximum update depth exceeded").
+ */
 export function createKeymapStore(): KeymapStore {
   let bindings = loadBindings()
   let capturing = false
+  let snapshot: KeymapState = { bindings, capturing }
   const listeners = new Set<() => void>()
-  const notify = (): void => {
+  const refresh = (): void => {
+    snapshot = { bindings, capturing }
     for (const listener of [...listeners]) listener()
   }
   return {
-    getSnapshot: () => ({ bindings, capturing }),
+    getSnapshot: () => snapshot,
     subscribe: (listener) => {
       listeners.add(listener)
       return () => {
@@ -188,15 +196,15 @@ export function createKeymapStore(): KeymapStore {
       bindings = { ...bindings, [action]: binding }
       capturing = false
       saveBindings(bindings)
-      notify()
+      refresh()
     },
     beginCapture: () => {
       capturing = true
-      notify()
+      refresh()
     },
     endCapture: () => {
       capturing = false
-      notify()
+      refresh()
     },
   }
 }
