@@ -137,4 +137,7 @@ curl -s -X POST http://127.0.0.1:3080/api/workspace.unarchiveSession \
 - 设计原则：**故意不注册模型工具**——命令/路由不进模型工具集，激活/重载不击穿 turn 内前缀缓存（呼应 discussion #935）；安装/卸载=改 profile 后重启生效（工具集变化落在进程边界）
 - 版本历史：动态原型 `pmgr-2`（本会话，cordis_define/run，进程重启即失）→ 静态正式版 `packages/dsh-plugin-manager/`
 - ⚠️ 若本机同时跑动态版 pmgr-2 与静态版：`/plugin` 命令与设置页会重复注册（id 不同不冲突但功能重复）——装静态版前先 `cordis_stop pmgr-2`（或重启后不复活动态版）
-- CI 已泛化：publish.yml 按 tag 版本匹配 packages/* 下所有 `dsh.bundle` 包，命中者 build/test/publish/promote；`dsh plugin add @suxeca/dsh-plugin-manager` 即可安装
+- CI 已泛化：publish.yml 按 tag 版本匹配 packages/* 下所有 `dsh.bundle` 包，命中者 build/test/publish/promote
+- 安装命令（本机 dsh 在 npx 缓存，标准调用为 `pnpm dsh`——在 harness 仓库 `~/Workspace/deepseek-harness` 下执行）：
+  `pnpm dsh plugin --profile web add @suxeca/dsh-plugin-manager`
+  （等价：`~/.npm/_npx/<npx-cache-id>/node_modules/.bin/dsh plugin --profile web add @suxeca/dsh-plugin-manager`）
