@@ -6,3 +6,7 @@
 	path = third-party/sage-mem
 	url = https://github.com/gezi-wen/sage-mem.git
 	branch = main
+[submodule "third-party/dsh-conversation-share"]
+	path = third-party/dsh-conversation-share
+	url = https://github.com/bill9109/dsh-conversation-share.git
+	branch = main

@@ -13,6 +13,7 @@
 | 科研台 Lab Cockpit | `@deepseek-ai/dsh-lab-kit`（本仓库） | 侧边栏「研究台」扫描展示工作区研究项目 | 本地 link | ✅ 在用 |
 | 视觉工具箱 | `@dsh-external/dsh-vision-toolkit`（[submodule](third-party/dsh-vision-toolkit)） | 原生视觉工具：识图、OCR、像素级定位、UI 还原 | 本地 link | ✅ 在用 v0.1.6 |
 | 记忆系统 | `sage-mem`（[submodule](third-party/sage-mem)） | 跨会话记忆：自动沉淀 + 检索注入，中文优先 | 本地 link | ✅ 在用 |
+| 对话分享 | `@bill9109/dsh-conversation-share`（[submodule](third-party/dsh-conversation-share)） | 选取对话片段分享为品牌化 PNG 长图 | GitHub 源 | ✅ 在用 v0.1.1 |
 
 ## 自研插件（本仓库 `packages/`）
 
@@ -70,6 +71,13 @@ pnpm dsh plugin --profile web add link:~/Workspace/dsh-plugin/packages/dsh-lab-k
 - 上游：<https://github.com/gezi-wen/sage-mem>
 - 架构：DSH 插件 → HTTP → Bun 常驻 worker → SQLite（FTS5 trigram）
 
+### 6. dsh-conversation-share · 对话分享
+
+在 DSH Web 会话流中选取一段对话范围（可拖拽、磁吸对齐的范围标记），一键导出为**品牌化 PNG 长图**分享——适合把关键对话/结论发到飞书、微信、汇报材料。
+
+- 上游：<https://github.com/bill9109/dsh-conversation-share>（v0.1.1，GitHub 源安装，未发布 npm）
+- 安装：`dsh plugin --profile web add github:bill9109/dsh-conversation-share`
+
 ## 目录结构
 
 ```
@@ -80,6 +88,7 @@ packages/                  # 本仓库自研插件（monorepo，tsdown 构建 + 
 third-party/               # git submodule：收录的在用插件
   dsh-vision-toolkit/
   sage-mem/
+  dsh-conversation-share/
 docs/DEVELOPMENT.md        # 插件开发指南（新建包、构建、安装、扩展点速查）
 ```
 
