@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Publish @deepseek-ai/dsh-client-ui-session-switcher
+    name: Publish @suxeca/dsh-client-ui-session-switcher
     runs-on: ubuntu-latest
     steps:
       # Complete history: release scripts may read tags.
@@ -56,14 +56,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm --filter @deepseek-ai/dsh-client-ui-session-switcher build
+        run: pnpm --filter @suxeca/dsh-client-ui-session-switcher build
 
       - name: Test
-        run: pnpm --filter @deepseek-ai/dsh-client-ui-session-switcher test
+        run: pnpm --filter @suxeca/dsh-client-ui-session-switcher test
 
       # `prepublishOnly` rebuilds lib/ right before publishing; the tarball
       # then ships prebuilt code (see docs/develop/basic/publish).
       - name: Publish to npm
-        run: pnpm --filter @deepseek-ai/dsh-client-ui-session-switcher publish --no-git-checks --access public --tag next
+        run: pnpm --filter @suxeca/dsh-client-ui-session-switcher publish --no-git-checks --access public --tag next
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

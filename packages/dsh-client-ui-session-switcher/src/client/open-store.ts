@@ -1,6 +1,6 @@
 /**
  * Tiny external store for the palette open state (useSyncExternalStore-shaped).
- * @module @deepseek-ai/dsh-client-ui-session-switcher/client/open-store
+ * @module @suxeca/dsh-client-ui-session-switcher/client/open-store
  */
 
 /** External store interface consumed by useSyncExternalStore. */

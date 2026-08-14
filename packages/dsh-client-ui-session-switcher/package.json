@@ -1,5 +1,5 @@
 {
-  "name": "@deepseek-ai/dsh-client-ui-session-switcher",
+  "name": "@suxeca/dsh-client-ui-session-switcher",
   "version": "0.1.0-rc.1",
   "description": "会话快速切换面板：Ctrl+K 调色板（新建/归档/取消归档/重命名/搜索/皮肤/工作区分组），Ctrl+[ / ] 按侧边栏顺序循环，面板内快捷键自定义",
   "type": "module",

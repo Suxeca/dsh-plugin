@@ -7,7 +7,7 @@
  * first, id tiebreak — the sidebar's default `updated` order), and
  * unaccounted sessions trailing in recency order. Archived, subagent, and
  * non-current blank sessions are invisible to both surfaces.
- * @module @deepseek-ai/dsh-client-ui-session-switcher/client/utils
+ * @module @suxeca/dsh-client-ui-session-switcher/client/utils
  */
 
 import type {

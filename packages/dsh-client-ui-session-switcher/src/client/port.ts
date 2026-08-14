@@ -6,7 +6,7 @@
  * the harness repo, see PLUGIN-HANDOFF §2.2), so the ports document exactly
  * what this plugin may touch. The runtime instances satisfy these faces; the
  * boundary cast lives in src/client/index.ts.
- * @module @deepseek-ai/dsh-client-ui-session-switcher/client/port
+ * @module @suxeca/dsh-client-ui-session-switcher/client/port
  */
 
 /** Session list row projection (mirrors SessionSummary minus unused fields). */

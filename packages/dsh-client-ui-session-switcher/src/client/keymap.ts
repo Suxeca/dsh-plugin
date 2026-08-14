@@ -4,7 +4,7 @@
  * rebind entirely inside the web GUI — no CLI/TUI config needed. `Alt+K` stays
  * a fixed safety fallback for opening the palette (never rebindable, so a
  * mis-bound toggle cannot lock the palette out).
- * @module @deepseek-ai/dsh-client-ui-session-switcher/client/keymap
+ * @module @suxeca/dsh-client-ui-session-switcher/client/keymap
  */
 
 /** Rebindable action ids (order drives the settings list). */

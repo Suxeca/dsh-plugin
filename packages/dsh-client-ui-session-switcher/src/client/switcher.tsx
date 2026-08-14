@@ -7,7 +7,7 @@
  * default. Skins (深色/浅色/高对比) cycle through the header button and
  * persist in localStorage; the `data-skin` attribute drives the CSS
  * variable palette in switcher.module.css.
- * @module @deepseek-ai/dsh-client-ui-session-switcher/client/switcher
+ * @module @suxeca/dsh-client-ui-session-switcher/client/switcher
  */
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'

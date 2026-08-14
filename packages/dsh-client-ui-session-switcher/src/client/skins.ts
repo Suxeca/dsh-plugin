@@ -3,7 +3,7 @@
  * properties in switcher.module.css (one `[data-skin=…]` block each); this
  * module only owns the name order, the display labels, and the localStorage
  * persistence. Flipping the `data-skin` attribute restyles the whole palette.
- * @module @deepseek-ai/dsh-client-ui-session-switcher/client/skins
+ * @module @suxeca/dsh-client-ui-session-switcher/client/skins
  */
 
 /** Skin cycle order (the header button steps through it). */
