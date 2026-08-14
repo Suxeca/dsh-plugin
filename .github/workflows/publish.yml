@@ -1,12 +1,17 @@
-# Publish the session-switcher bundle to npm on a dsh-v* tag push —
+# Publish the @suxeca bundles to npm on a dsh-v* tag push —
 # mirroring the deepseek-harness release convention (release.yml):
 # pack/build on every push, publication from a `dsh-v*` tag.
 #
 # Usage:
-#   git tag dsh-v0.1.0-rc.1   # tag must match the package version you publish
+#   git tag dsh-v0.1.0-rc.1   # tag must match one package's version
 #   git push origin dsh-v0.1.0-rc.1
 #
-# Prerequisite: an npmjs token with publish rights for the @deepseek-ai scope
+# The tag version is matched against every package under packages/; the
+# matching package (and only it) is built, tested, published to npm under
+# `next` and promoted to `latest`. A tag that matches nothing runs the
+# pipeline harmlessly (no publish steps fire).
+#
+# Prerequisite: an npmjs token with publish rights for the @suxeca scope
 # stored as the repository secret `NPM_TOKEN`.
 name: Publish to npm
 
@@ -31,7 +36,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Publish @suxeca/dsh-client-ui-session-switcher
+    name: Publish matching @suxeca package
     runs-on: ubuntu-latest
     steps:
       # Complete history: release scripts may read tags.
@@ -52,29 +57,54 @@ jobs:
           # The publish step resolves credentials through this registry URL.
           registry-url: 'https://registry.npmjs.org'
 
+      # The tag drives publication: a tag version equal to one package's
+      # version publishes exactly that package.
+      - name: Resolve package from tag
+        id: resolve
+        run: |
+          TAG="${GITHUB_REF#refs/tags/dsh-v}"
+          PKG=""
+          HAS_TEST="0"
+          for dir in packages/*; do
+            [ -f "$dir/package.json" ] || continue
+            VERSION=$(node -p "require('./$dir/package.json').version" 2>/dev/null || true)
+            [ "$VERSION" = "$TAG" ] || continue
+            PKG=$(node -p "require('./$dir/package.json').name")
+            HAS_TEST=$(node -p "require('./$dir/package.json').scripts && require('./$dir/package.json').scripts.test ? '1' : '0'")
+            break
+          done
+          echo "tag=$TAG pkg=$PKG has_test=$HAS_TEST"
+          echo "pkg=$PKG" >> "$GITHUB_OUTPUT"
+          echo "has_test=$HAS_TEST" >> "$GITHUB_OUTPUT"
+
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm --filter @suxeca/dsh-client-ui-session-switcher build
+        if: steps.resolve.outputs.pkg != ''
+        run: pnpm --filter "${{ steps.resolve.outputs.pkg }}" build
 
       - name: Test
-        run: pnpm --filter @suxeca/dsh-client-ui-session-switcher test
+        if: steps.resolve.outputs.pkg != '' && steps.resolve.outputs.has_test == '1'
+        run: pnpm --filter "${{ steps.resolve.outputs.pkg }}" test
 
       # `prepublishOnly` rebuilds lib/ right before publishing; the tarball
       # then ships prebuilt code (see docs/develop/basic/publish).
       - name: Publish to npm
-        run: pnpm --filter @suxeca/dsh-client-ui-session-switcher publish --no-git-checks --access public --tag next
+        if: steps.resolve.outputs.pkg != ''
+        run: pnpm --filter "${{ steps.resolve.outputs.pkg }}" publish --no-git-checks --access public --tag next
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # Keep `latest` in sync with every published rc, so a bare
-      # `dsh plugin add @suxeca/dsh-client-ui-session-switcher` always gets
-      # the newest fixed version (npm leaves `latest` untouched for --tag
-      # publishes).
+      # `dsh plugin add @suxeca/<pkg>` always gets the newest fixed version
+      # (npm leaves `latest` untouched for --tag publishes). The tag equals
+      # the package version by construction of the resolve step.
       - name: Promote to latest
+        if: steps.resolve.outputs.pkg != ''
         run: |
-          VERSION=$(node -p "require('./packages/dsh-client-ui-session-switcher/package.json').version")
-          npm dist-tag add "@suxeca/dsh-client-ui-session-switcher@${VERSION}" latest
+          PKG="${{ steps.resolve.outputs.pkg }}"
+          TAG="${GITHUB_REF#refs/tags/dsh-v}"
+          npm dist-tag add "${PKG}@${TAG}" latest
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
