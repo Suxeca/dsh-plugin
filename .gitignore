@@ -8,3 +8,6 @@ node_modules/
 # misc
 *.log
 .DS_Store
+
+# 运行时数据：文件快照/撤销存储（非源码）
+.dsh-undo/

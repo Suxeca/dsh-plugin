@@ -6,11 +6,14 @@
 
 /* --- center-column takeover (global rules, attribute-scoped) ----------------- */
 
-[data-pane='conversation'] {
+/* The center column carries no data marker in the shell (ui-layout
+   AppFrame.tsx renders `<div className={css.centerCol}>`); match the stable
+   css-module local-name suffix. */
+[class*='centerCol'] {
   position: relative;
 }
 
-/* The cockpit container rides inside the conversation grid item as an extra
+/* The cockpit container rides inside the center column as an extra
    trailing child; hidden unless the cockpit is active. */
 [data-dsh-labkit-view] {
   position: absolute;
@@ -24,9 +27,11 @@ html[data-dsh-labkit-active] [data-dsh-labkit-view] {
 }
 
 /* While the cockpit is active, the conversation content underneath is hidden
-   (it stays mounted and stateful). */
-html[data-dsh-labkit-active] [data-pane='conversation'] > :not([data-dsh-labkit-view]) {
-  display: none;
+   (it stays mounted and stateful). The slot wrapper carries an inline
+   `display: contents`, which beats a plain stylesheet rule — !important is
+   required to suppress it. */
+html[data-dsh-labkit-active] [class*='centerCol'] > :not([data-dsh-labkit-view]) {
+  display: none !important;
 }
 
 /* --- sidebar entry row ------------------------------------------------------- */
@@ -62,13 +67,24 @@ html[data-dsh-labkit-active] [data-pane='conversation'] > :not([data-dsh-labkit-
   display: inline-flex;
 }
 
+/* Rail mode: the frame marks collapse with data-sidebar-collapsed (AppFrame
+   sets it on the frame div); shrink the entry to a centered icon row. */
+[data-sidebar-collapsed] [data-dsh-labkit-entry] {
+  justify-content: center;
+  padding: 0;
+}
+
+[data-sidebar-collapsed] [data-dsh-labkit-entry] > span:last-child {
+  display: none;
+}
+
 /* --- cockpit panel ------------------------------------------------------------ */
 
 .panel {
   height: 100%;
   padding: 20px 24px;
   overflow-y: auto;
-  background: var(--dsw-alias-surface-base);
+  background: var(--dsw-alias-bg-base);
   color: var(--dsw-alias-label-primary);
 }
 
@@ -99,9 +115,9 @@ html[data-dsh-labkit-active] [data-pane='conversation'] > :not([data-dsh-labkit-
 
 .button {
   padding: 4px 10px;
-  border: 1px solid var(--dsw-alias-border-strong);
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 6px;
-  background: var(--dsw-alias-surface-raised);
+  background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-primary);
   font-size: 12px;
   cursor: pointer;
@@ -119,7 +135,7 @@ html[data-dsh-labkit-active] [data-pane='conversation'] > :not([data-dsh-labkit-
 }
 
 .error {
-  color: var(--dsw-alias-danger);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .list {
@@ -133,9 +149,9 @@ html[data-dsh-labkit-active] [data-pane='conversation'] > :not([data-dsh-labkit-
 
 .card {
   padding: 10px 12px;
-  border: 1px solid var(--dsw-alias-border-weak);
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 8px;
-  background: var(--dsw-alias-surface-raised);
+  background: var(--dsw-alias-bg-layer-1);
 }
 
 .cardMain {

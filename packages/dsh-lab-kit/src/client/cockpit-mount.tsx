@@ -3,7 +3,7 @@
  *
  * The `conversation` slot is single-occupant (ui-conversation) and external
  * plugins cannot declare slots, so the cockpit takes over the center column
- * at the DOM level: a container is appended inside the `[data-pane="conversation"]`
+ * at the DOM level: a container is appended inside the `[class*="centerCol"]`
  * grid item (an extra trailing child React never manages), and a stylesheet
  * rule hides the conversation content while the cockpit is active. Toggling
  * is a data attribute on <html> — no React involvement, so the conversation
@@ -19,7 +19,8 @@ import css from './cockpit.module.css'
 /** The injected cockpit container (kept in the DOM, hidden when inactive). */
 export const COCKPIT_VIEW_SELECTOR = '[data-dsh-labkit-view]'
 
-const CONVERSATION_COLUMN_SELECTOR = '[data-pane="conversation"]'
+/** Center column AppFrame renders (`<div className={css.centerCol}>`); css-module hash-prefixed, so match the stable local-name suffix. */
+const CONVERSATION_COLUMN_SELECTOR = '[class*="centerCol"]'
 const ACTIVE_ATTR = 'data-dsh-labkit-active'
 
 /** Find the center column, or undefined while the frame is not mounted. */

@@ -21,17 +21,40 @@ import css from './cockpit.module.css'
 /** Stable data attribute identifying the injected entry row. */
 export const ENTRY_SELECTOR = '[data-dsh-labkit-entry]'
 
-/** The sidebar column is the grid item AppFrame renders with this pane marker. */
-const SIDEBAR_COLUMN_SELECTOR = '[data-pane="sidebar"]'
+/**
+ * The sidebar shell lives inside the layout's `sidebar` slot. The slot
+ * renderer (ui-slots/web-react scoped-slots) wraps every slot occupant in a
+ * `<div data-slot="<key>">` — the documented addressable seam — whose
+ * firstElementChild is the SidebarRoot itself.
+ */
+const SIDEBAR_SLOT_SELECTOR = '[data-slot="sidebar"]'
+
+/**
+ * Fallback anchor: the sidebar column AppFrame renders (a css-module
+ * hash-prefixed class; only the local-name suffix `sidebarCol` is stable).
+ */
+const SIDEBAR_COLUMN_SELECTOR = '[class*="sidebarCol"]'
 
 /** Inline icon (matches the shell's 16px nav-icon look): a flask. */
 const ICON = `<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h4M7 2v4.2L3.6 11.4A1.4 1.4 0 0 0 4.8 13.5h6.4a1.4 1.4 0 0 0 1.2-2.1L9 6.2V2"/><path d="M4.5 9.5h7"/></svg>`
 
-/** Find the sidebar shell root element, or undefined while not yet mounted. */
+/**
+ * Find the sidebar shell root element, or undefined while not yet mounted.
+ * Primary: the `data-slot="sidebar"` seam's first child. Fallback: walk down
+ * from the sidebar column until an element with a direct BUTTON child (the
+ * New Session button) — the shell root, regardless of wrapper depth.
+ */
 function sidebarRoot(): HTMLElement | undefined {
+  const slot = document.querySelector<HTMLElement>(SIDEBAR_SLOT_SELECTOR)
+  if (slot?.firstElementChild) return slot.firstElementChild as HTMLElement
   const column = document.querySelector<HTMLElement>(SIDEBAR_COLUMN_SELECTOR)
-  const root = column?.firstElementChild as HTMLElement | undefined
-  return root ?? undefined
+  if (!column) return undefined
+  for (let el: HTMLElement | null = column; el; el = el.firstElementChild as HTMLElement | null) {
+    for (const child of el.children) {
+      if (child.tagName === 'BUTTON') return el
+    }
+  }
+  return undefined
 }
 
 /** The New Session button: the shell's only direct-child button of the root. */
