@@ -118,9 +118,11 @@ curl -s -X POST http://127.0.0.1:3080/api/workspace.unarchiveSession \
 - 全家桶：`~/Workspace/dsh-web-ui`（dsh-ssh / task-board / git-graph / pet / live-stats / remote-web-ui / **skins 皮肤全家桶**——应用级皮肤，与面板级皮肤互补）
 - 本仓库（外部插件 monorepo）：`~/Workspace/dsh-plugin`（bundle 形态插件标准模板 + 会话切换器标准化版；模板说明见 `docs/DEVELOPMENT.md`）
 
-## 9. npm 发布状态（2026-08-14 更新）
+## 9. npm 发布状态（2026-08-14 最终）
 
-- 包名已改为 **`@suxeca/dsh-client-ui-session-switcher`**（用户自有 npm scope，可自行发布；原 `@deepseek-ai/...` 是官方 org，外部账号无发布权）
-- 发布流水线：仓库 `Suxeca/dsh-plugin`，`dsh-v*` tag → GitHub Actions 自动 install/build/test/publish（对齐 harness release.yml 惯例）；CI 已验证 install/build/test 全绿，发布步只差 `NPM_TOKEN` secret
-- 本地 profile 部署仍用 `@deepseek-ai/dsh-client-ui-session-switcher` 目录与旧 bundle id，**不受改名影响**，继续工作；将来用 `dsh plugin --profile web add @suxeca/dsh-client-ui-session-switcher` 从 npm 安装后即可切换
-- 发布后安装路径（官方 publish 文档）：`dsh plugin add <npm包名>` 装的是发布时构建好的 lib/
+- 包名：**`@suxeca/dsh-client-ui-session-switcher`**，**已发布 `0.1.0-rc.1`**（npmjs，dist-tags: next/latest）——用户自有 scope，可自行发布；原 `@deepseek-ai/...` 是官方 org，外部账号无发布权
+- 发布流水线：仓库 `Suxeca/dsh-plugin`，`dsh-v*` tag → GitHub Actions 自动 install/build/test/publish（对齐 harness release.yml 惯例）。**CI 全链路已验证通过**（NPM_TOKEN = 粒化 token + `--bypass-2fa`，2FA 账号自动化发布必需）
+- **profile 已切换到 npm 版**：`~/.dsh/profiles/web` 的 bundles/dependencies 只留 `@suxeca/...`，旧的 `@deepseek-ai/dsh-client-ui-session-switcher` link 条目已删除
+- ⚠️ **踩坑（务必记住）**：同一插件不能同时以两个来源留在 bundles——旧 link 版和新 npm 版的 cordis.patch.yml 都 insert `id: ui-session-switcher`，会 duplicate loader entry id 导致面板消失（Ctrl+K 唤不出）。换源必须**先卸载旧条目**再装新条目
+- 日常发版：改版本号 → `git tag dsh-vX.Y.Z && git push origin dsh-vX.Y.Z` → CI 自动发布，无需 OTP
+- 本地开发副本 `~/Workspace/dsh-plugin/packages/dsh-client-ui-session-switcher/` 保留作开发用；要预览本地改版需先卸载 npm 版再 `add` link 版
