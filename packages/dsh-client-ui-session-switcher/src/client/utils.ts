@@ -5,8 +5,10 @@
  * GUI's left sidebar shows (WorkspaceBrowser default view): workspaces in
  * Host display order, sessions inside each workspace by recency (newest
  * first, id tiebreak — the sidebar's default `updated` order), and
- * unaccounted sessions trailing in recency order. Archived, subagent, and
- * non-current blank sessions are invisible to both surfaces.
+ * unaccounted sessions trailing in recency order. Subagent-origin rows are
+ * invisible to both surfaces (they live under parent catalogs); forked /
+ * branch conversations (parentId set, ordinary origin) are ordinary rows.
+ * Archived and non-current blank sessions are hidden as well.
  * @module @suxeca/dsh-client-ui-session-switcher/client/utils
  */
 
@@ -60,14 +62,18 @@ function byRecency(a: SessionSummaryLike, b: SessionSummaryLike): number {
   return a.id < b.id ? -1 : 1
 }
 
-/** Sidebar visibility rule: subagent rows, archived rows, and non-current blank rows are hidden. */
+/**
+ * Sidebar visibility rule, mirroring the WorkspaceBrowser derivation
+ * (`sessionVisible` in ui-workspace/tree.ts): subagent-origin rows, archived
+ * rows, and non-current blank rows are hidden. Forked/branch conversations
+ * (parentId set, ordinary origin) are ordinary rows — no parentId check.
+ */
 function sessionVisible(
   session: SessionSummaryLike,
   currentId: string | undefined,
   archivedIds: ReadonlySet<string>,
 ): boolean {
   return session.origin !== 'subagent'
-    && session.parentId === undefined
     && !archivedIds.has(session.id)
     && (!session.blank || session.id === currentId)
 }
@@ -168,7 +174,7 @@ export function paletteItems(
 }
 
 /**
- * Root (non-subagent) archived sessions for the archived view, recency order.
+ * Archived (non-subagent) sessions for the archived view, recency order.
  * The sidebar hides archived rows everywhere, so this list is flat.
  */
 export function archivedSessions(
@@ -180,7 +186,7 @@ export function archivedSessions(
   const entries: DecoratedSession[] = []
   for (const id of sessionsSnap.ids ?? []) {
     const session = byId[id]
-    if (session === undefined || session.parentId !== undefined || session.origin === 'subagent') continue
+    if (session === undefined || session.origin === 'subagent') continue
     if (!archivedIds.has(id)) continue
     entries.push({ session })
   }
@@ -189,10 +195,24 @@ export function archivedSessions(
 }
 
 /**
- * The cycle-gesture anchor: the current session id, or — when a subagent
- * child is current — its root ancestor id, so Ctrl+[ / Ctrl+] move relative
- * to the row the sidebar highlights.
+ * The cycle-gesture anchor: the current session id when it is itself in the
+ * list (forked/branch conversations are list rows), otherwise — e.g. a
+ * subagent child that lives under its parent's catalog — the nearest
+ * ancestor that is in the list, so Ctrl+[ / Ctrl+] move relative to the row
+ * the sidebar highlights.
  */
+export function cycleAnchor(
+  entries: readonly DecoratedSession[],
+  currentId: string | undefined,
+  byId: SessionListStateLike['byId'],
+): string | undefined {
+  if (currentId !== undefined && entries.some((entry) => entry.session.id === currentId)) {
+    return currentId
+  }
+  return cycleAnchorId(currentId, byId)
+}
+
+/** Walk subagent lineage up to the root ancestor of a session. */
 export function cycleAnchorId(
   currentId: string | undefined,
   byId: SessionListStateLike['byId'],

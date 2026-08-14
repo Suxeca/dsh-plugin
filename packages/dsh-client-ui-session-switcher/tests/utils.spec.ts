@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   archivedSessions,
+  cycleAnchor,
   cycleAnchorId,
   offsetTarget,
   paletteItems,
@@ -140,10 +141,21 @@ describe('sidebarOrder', () => {
     expect(ids).toEqual(['a', 'b'])
   })
 
-  it('excludes subagent children, subagent-origin, archived, and non-current blank sessions', () => {
+  it('includes forked/branch conversations (parentId set) as ordinary rows', () => {
+    const entries = [
+      session({ id: 'root', updatedAt: 100 }),
+      session({ id: 'branch1', parentId: 'root', updatedAt: 300 }),
+      session({ id: 'branch2', parentId: 'root', updatedAt: 200 }),
+    ]
+    const ws = workspacesSnap([workspace('a', 'A', ['root', 'branch1', 'branch2'])])
+    const ids = sidebarOrder(sessionsSnap(entries, 'branch1'), ws).map((d) => d.session.id)
+    // recency desc within the workspace, branches included.
+    expect(ids).toEqual(['branch1', 'branch2', 'root'])
+  })
+
+  it('excludes subagent-origin, archived, and non-current blank sessions', () => {
     const entries = [
       session({ id: 'root' }),
-      session({ id: 'child', parentId: 'root' }),
       session({ id: 'agent', origin: 'subagent' }),
       session({ id: 'blank', blank: true }),
       session({ id: 'blankCurrent', blank: true }),
@@ -225,14 +237,35 @@ describe('archivedSessions', () => {
     expect(archivedSessions(sessionsSnap(entries), ws).map((d) => d.session.id)).toEqual(['a2', 'a1'])
   })
 
-  it('excludes subagent children and origin rows', () => {
+  it('includes archived branch sessions, excludes subagent-origin rows', () => {
     const entries = [
       session({ id: 'a1', parentId: 'root' }),
       session({ id: 'a2', origin: 'subagent' }),
       session({ id: 'a3' }),
     ]
     const ws = workspacesSnap([], { archivedSessionIds: ['a1', 'a2', 'a3'] })
-    expect(archivedSessions(sessionsSnap(entries), ws).map((d) => d.session.id)).toEqual(['a3'])
+    expect(archivedSessions(sessionsSnap(entries), ws).map((d) => d.session.id)).toEqual(['a1', 'a3'])
+  })
+})
+
+describe('cycleAnchor', () => {
+  const entries: DecoratedSession[] = ['a', 'b', 'c'].map((id) => ({ session: session({ id }) }))
+  const byId = {
+    a: session({ id: 'a' }),
+    b: session({ id: 'b' }),
+    c: session({ id: 'c' }),
+    child: session({ id: 'child', parentId: 'a' }),
+  }
+
+  it('uses the current id when it is a list row (forked branches included)', () => {
+    expect(cycleAnchor(entries, 'b', byId)).toBe('b')
+  })
+  it('walks subagent children up to the nearest listed ancestor', () => {
+    expect(cycleAnchor(entries, 'child', byId)).toBe('a')
+  })
+  it('returns undefined for unknown or missing ids', () => {
+    expect(cycleAnchor(entries, 'ghost', byId)).toBeUndefined()
+    expect(cycleAnchor(entries, undefined, byId)).toBeUndefined()
   })
 })
 

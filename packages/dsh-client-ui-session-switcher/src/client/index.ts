@@ -13,7 +13,7 @@ import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { createKeymapStore, matchesBinding } from './keymap.ts'
 import { createOpenStore } from './open-store.ts'
-import { cycleAnchorId, offsetTarget, sidebarOrder } from './utils.ts'
+import { cycleAnchor, offsetTarget, sidebarOrder } from './utils.ts'
 import { Switcher } from './switcher.tsx'
 import type { SessionsPort, SwitcherContext, WorkspacesPort } from './port.ts'
 
@@ -40,14 +40,15 @@ export function apply(ctx: ClientContext): void {
 
   /**
    * Open the conversation `offset` positions away (wraps around), moving
-   * through the exact visual order the left sidebar shows. A current
-   * subagent child anchors on its root parent row.
+   * through the exact visual order the left sidebar shows. The anchor is the
+   * current session itself when it is a list row (forked branches included);
+   * a subagent child anchors on its nearest listed ancestor.
    */
   const switchByOffset = (offset: number): void => {
     const sessionsSnap = sessions.list.getSnapshot()
     const workspacesSnap = workspaces.list.getSnapshot()
     const entries = sidebarOrder(sessionsSnap, workspacesSnap)
-    const anchor = cycleAnchorId(sessionsSnap.current, sessionsSnap.byId)
+    const anchor = cycleAnchor(entries, sessionsSnap.current, sessionsSnap.byId)
     const target = offsetTarget(entries, anchor, offset)
     if (target !== undefined) sessions.open(target.session.id)
   }

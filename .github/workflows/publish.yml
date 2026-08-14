@@ -67,3 +67,14 @@ jobs:
         run: pnpm --filter @suxeca/dsh-client-ui-session-switcher publish --no-git-checks --access public --tag next
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Keep `latest` in sync with every published rc, so a bare
+      # `dsh plugin add @suxeca/dsh-client-ui-session-switcher` always gets
+      # the newest fixed version (npm leaves `latest` untouched for --tag
+      # publishes).
+      - name: Promote to latest
+        run: |
+          VERSION=$(node -p "require('./packages/dsh-client-ui-session-switcher/package.json').version")
+          npm dist-tag add "@suxeca/dsh-client-ui-session-switcher@${VERSION}" latest
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
