@@ -124,7 +124,7 @@ DSH_CHECKOUT 可探测性 → 默认模型未被污染。任一 FAIL 按输出�
 
 ## 5. 已知环境坑（实测记录）
 
-1. **自检的 Windows 路径残留**：`dev_self_test` 的测试插件目录写死 `D:/杨佳禾/dsh/selftest-runner`，
+1. **自检的 Windows 路径残留**：`dev_self_test` 的测试插件目录写死 `/dsh/selftest-runner`，
    Linux 上解析为相对路径 → 在进程 cwd 下创建 `D:` 目录。跑完自检后清理：
    `rm -rf "<进程cwd>/D:"`（本机 = `~/Workspace/deepseek-harness/D:`）。
    已向作者反馈 Linux 兼容问题。
