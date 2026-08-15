@@ -115,8 +115,8 @@ DSH_CHECKOUT 可探测性 → 默认模型未被污染。任一 FAIL 按输出�
 本机 checkout 在 `~/Workspace/deepseek-harness`——**不在探测路径**，`dev_self_test` 第一项会 FAIL。
 
 修复（三选一）：
-1. **推荐**：在 DSH 启动环境导出 `export DSH_CHECKOUT=/home/suxeca/Workspace/deepseek-harness`
-   （shell profile / systemd / 启动脚本），重启 DSH 后永久生效；
+1. **推荐**：在 DSH 启动环境导出 `export DSH_CHECKOUT="$HOME/Workspace/deepseek-harness"`
+   （`~` 在 export 中不展开，用 `$HOME`；shell profile / systemd / 启动脚本），重启 DSH 后永久生效；
 2. 运行中临时设置：staging 工具（dev_stage_add）内 `process.env.DSH_CHECKOUT = ...`（重启失效）；
 3. 软链兜底：`ln -s ~/Workspace/deepseek-harness ~/dsh-harness`（一劳永逸，无需重启）。
 

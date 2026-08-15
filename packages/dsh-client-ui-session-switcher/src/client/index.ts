@@ -1,6 +1,8 @@
 /**
  * Client bundle entry: global shortcut wiring (customizable chords for open /
- * next / previous, plus a fixed Alt+K fallback) and the palette mount.
+ * next / previous, the layout chords driving the DSH frame and the
+ * better-sidebar workbench, plus the fixed Alt+K fallback and Esc
+ * fullscreen-exit) and the palette mount.
  *
  * Failure policy: DOM mounting problems are logged, never thrown — the web
  * shell fails the whole boot when a plugin apply throws, and an external
@@ -15,10 +17,22 @@ import { createKeymapStore, matchesBinding } from './keymap.ts'
 import { createOpenStore } from './open-store.ts'
 import { cycleAnchor, offsetTarget, sidebarOrder } from './utils.ts'
 import { Switcher } from './switcher.tsx'
-import type { SessionsPort, SwitcherContext, WorkspacesPort } from './port.ts'
+import type { BetterSidebarPort, LayoutPort, SessionsPort, SwitcherContext, WorkspacesPort } from './port.ts'
 
-/** Services the switcher reads from the context (service names, not modules). */
+/** Services the switcher reads from the context (service names, not modules).
+ *  `layout` / `betterSidebar` are intentionally NOT injected: the layout
+ *  chords must degrade gracefully (log + no-op) when either service is absent
+ *  (non-web profiles), so they resolve lazily behind a guard instead. */
 export const inject = ['sessions', 'workspaces']
+
+/** IME-composition guard (mirrors better-sidebar's ime-guard): while a CJK
+ *  input method owns the key, chords must not fire — modifiers like Ctrl+B
+ *  would otherwise break candidate selection mid-composition. This handler
+ *  runs on window capture, BEFORE better-sidebar's document-level guard, so
+ *  the check is this plugin's own responsibility. */
+function isImeComposition(event: KeyboardEvent): boolean {
+  return event.isComposing || event.keyCode === 229
+}
 
 /**
  * Mount the switcher: one React root hosting the palette, plus the global
@@ -58,6 +72,18 @@ export function apply(ctx: ClientContext): void {
     // Mid-rebind: the palette's own handler owns every key press; the global
     // handler stands down so a captured chord never re-triggers an action.
     if (capturing) return
+    // IME composition owns the key — never treat it as a chord.
+    if (isImeComposition(e)) return
+
+    // Lazy layout/workbench faces, resolved PER KEYPRESS: the boot order
+    // between this plugin and the service owners is unspecified (neither is
+    // injected here), and ctx.get() returns undefined until the provider's
+    // apply ran — a one-time capture at apply() would freeze the undefined.
+    // ctx.get() is the Cordis optional accessor — a bare ctx.layout read
+    // would hit the context proxy and throw "cannot get property without
+    // inject".
+    const layout = ctx.get('layout') as LayoutPort | undefined
+    const betterSidebar = ctx.get('betterSidebar') as BetterSidebarPort | undefined
 
     const open = openStore.getSnapshot()
 
@@ -86,11 +112,61 @@ export function apply(ctx: ClientContext): void {
       switchByOffset(-1)
       return
     }
-    // Escape inside the open panel is the panel's own concern (search →
-    // manage → close); only close globally when the key landed outside it.
-    if (open && e.key === 'Escape' && (container === null || !container.contains(e.target as Node))) {
-      e.preventDefault()
-      openStore.close()
+    // Layout chords (defaults: Ctrl+B left / Ctrl+Shift+B right / Ctrl+J
+    // bottom / Alt+Shift+L left fullscreen / Alt+Shift+R right fullscreen),
+    // only while the palette is closed. Each dispatches through the owning
+    // plugin's service; a missing service is a silent no-op.
+    if (!open) {
+      if (matchesBinding(bindings.toggleLeftSidebar, e)) {
+        e.preventDefault()
+        if (layout !== undefined) layout.toggleSidebar()
+        else console.warn('[session-switcher] layout chord: ui-layout service missing')
+        return
+      }
+      if (matchesBinding(bindings.toggleRightSidebar, e)) {
+        e.preventDefault()
+        if (betterSidebar !== undefined) betterSidebar.togglePanel()
+        else console.warn('[session-switcher] workbench chord: better-sidebar service missing')
+        return
+      }
+      if (matchesBinding(bindings.toggleBottom, e)) {
+        e.preventDefault()
+        if (betterSidebar !== undefined) betterSidebar.toggleBottomPanel()
+        else console.warn('[session-switcher] workbench chord: better-sidebar service missing')
+        return
+      }
+      if (matchesBinding(bindings.fullscreenLeft, e)) {
+        e.preventDefault()
+        if (layout !== undefined) layout.toggleLeftFullscreen()
+        else console.warn('[session-switcher] layout chord: ui-layout service missing')
+        return
+      }
+      if (matchesBinding(bindings.fullscreenRight, e)) {
+        e.preventDefault()
+        if (betterSidebar !== undefined) betterSidebar.toggleFullscreen()
+        else console.warn('[session-switcher] workbench chord: better-sidebar service missing')
+        return
+      }
+    }
+    // Escape: inside the open panel it is the panel's own concern (search →
+    // manage → close); outside it closes the palette. With the palette
+    // closed, Escape exits any active fullscreen (left frame or right
+    // workbench) — fixed, never rebindable.
+    if (e.key === 'Escape') {
+      if (open) {
+        if (container === null || !container.contains(e.target as Node)) {
+          e.preventDefault()
+          openStore.close()
+        }
+        return
+      }
+      const workbenchFullscreen = betterSidebar?.getSnapshot().state?.fullscreen === true
+      const frameFullscreen = layout?.isLeftFullscreen() === true
+      if (frameFullscreen || workbenchFullscreen) {
+        e.preventDefault()
+        layout?.setLeftFullscreen(false)
+        betterSidebar?.setFullscreen(false)
+      }
     }
   }
   window.addEventListener('keydown', onWindowKeyDown, true)

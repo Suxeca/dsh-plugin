@@ -86,6 +86,32 @@ export interface SwitcherContext {
   readonly workspaces: WorkspacesPort
 }
 
+/**
+ * The ui-layout face the layout chords call (ctx.layout). Narrower than the
+ * upstream ILayout: only the actions this plugin dispatches. Resolved
+ * lazily — the switcher must keep working when ui-layout is absent (non-web
+ * profiles), so the boundary cast stays optional at the call site.
+ */
+export interface LayoutPort {
+  toggleSidebar(): void
+  isLeftFullscreen(): boolean
+  setLeftFullscreen(fullscreen: boolean): void
+  toggleLeftFullscreen(): void
+}
+
+/**
+ * The better-sidebar face the workbench chords call (ctx.betterSidebar,
+ * v0.12.0+ panelControl capability). Resolved lazily like LayoutPort: the
+ * switcher degrades gracefully when the workbench plugin is not installed.
+ */
+export interface BetterSidebarPort {
+  togglePanel(): void
+  toggleBottomPanel(): void
+  setFullscreen(fullscreen: boolean): void
+  toggleFullscreen(): void
+  getSnapshot(): { state?: { fullscreen?: boolean } | undefined }
+}
+
 /** A root session decorated with its owning workspace (undefined = unaccounted). */
 export interface DecoratedSession {
   session: SessionSummaryLike

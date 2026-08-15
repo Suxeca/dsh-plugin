@@ -13,5 +13,10 @@
   "devDependencies": {
     "lightningcss": "^1.32.0",
     "tsdown": "^0.22.2"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": "0.0.1-rc.1",
+    "cordis": "npm:@deepseek-ai/cordis@4.0.1",
+    "schemastery": "^3.18.0"
   }
 }

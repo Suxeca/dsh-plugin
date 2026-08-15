@@ -8,7 +8,7 @@
 
 | 插件 | 包名 / 来源 | 功能 | 安装方式 | 状态 |
 |---|---|---|---|---|
-| 会话切换面板 | `@suxeca/dsh-client-ui-session-switcher`（本仓库） | Ctrl+K 调色板切换对话，Ctrl+[ / ] 按侧边栏顺序循环 | npm | ✅ 已发布 rc.3 |
+| 会话切换面板 | `@suxeca/dsh-client-ui-session-switcher`（本仓库） | Ctrl+K 调色板切换对话，Ctrl+[ / ] 循环 + 布局快捷键（折叠/全屏各栏） | npm | ✅ 已发布 rc.5 |
 | 插件管理器 | `@suxeca/dsh-plugin-manager`（本仓库） | `/plugin` 命令 + 设置页列出/安装/卸载插件 | npm | ✅ 已发布 rc.4 |
 | 科研台 Lab Cockpit | `@deepseek-ai/dsh-lab-kit`（本仓库） | 侧边栏「研究台」扫描展示工作区研究项目 | 本地 link | ✅ 在用 |
 | Better Sidebar 工作台 | [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) | 文件管理/编辑预览/PDF/终端/Git/浏览器/任务面板 | npm / GitHub | ✅ 在用 v0.12.x |
@@ -23,10 +23,22 @@
 
 ### 1. dsh-client-ui-session-switcher · 会话快速切换面板
 
-会话调色板 + 键盘流切换：
+会话调色板 + 键盘流切换 + **布局快捷键**（联动 DSH 左侧栏与 better-sidebar 工作台）：
 
 - `Ctrl+K` / `Alt+K` 打开调色板：↑↓ 选择、`N` 新建、`A` 归档、`T` 归档视图 + `U` 取消归档、`R` 重命名、`S` 搜索、皮肤切换（深色/浅色/高对比）
 - `Ctrl+[` / `Ctrl+]` 在面板关闭时按**左侧栏可见顺序**循环切换对话（工作区显示序 → 区内最近活动在前 → 未分组垫底）
+- 布局快捷键（VSCode 风格，Mac 自动 ⌘ 化；Ctrl+K 面板 → ⚙ 快捷键 可全部改键）：
+
+| 功能 | 默认键位 | 联动 |
+|---|---|---|
+| 折叠/展开左侧栏（会话列表） | `Ctrl+B` | DSH `ctx.layout` |
+| 折叠/展开右侧栏（工作台） | `Ctrl+Shift+B` | better-sidebar `ctx.betterSidebar` |
+| 折叠/展开底栏 | `Ctrl+J` | better-sidebar `ctx.betterSidebar` |
+| 左侧栏全屏 / 还原 | `Alt+Shift+L` | DSH `ctx.layout` |
+| 右侧栏全屏 / 还原 | `Alt+Shift+R` | better-sidebar `ctx.betterSidebar` |
+| 退出全屏（固定，不可改） | `Esc` | 两者同时退出 |
+
+  中文输入法组合键受 IME 防护（不误触发）；工作台侧基于 better-sidebar v0.12 的 `panelControl` 服务能力（`togglePanel` / `toggleBottomPanel` / `setFullscreen` / `toggleFullscreen`），服务缺失时对应键位静默 no-op。
 - 面板按工作区分节，打开时默认选中当前会话，滚动跟随
 
 ```sh
@@ -34,7 +46,7 @@ cd ~/Workspace/deepseek-harness
 pnpm dsh plugin --profile web add @suxeca/dsh-client-ui-session-switcher
 ```
 
-npm: `@suxeca/dsh-client-ui-session-switcher@0.1.0-rc.3`（tag `dsh-v*` 触发 CI 自动发布并提升 latest）。
+npm: `@suxeca/dsh-client-ui-session-switcher@0.1.0-rc.5`（tag `dsh-v*` 触发 CI 自动发布并提升 latest）。布局快捷键回归脚本：[`scripts/verify-shortcuts.mjs`](scripts/verify-shortcuts.mjs)（无头 Chrome E2E，13 项断言）。
 
 ### 2. dsh-plugin-manager · 插件管理器
 

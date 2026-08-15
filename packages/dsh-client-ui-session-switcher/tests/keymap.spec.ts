@@ -61,12 +61,23 @@ describe('isModifierKey', () => {
 })
 
 describe('defaultBindings', () => {
-  it('has all three actions with the pre-existing chords (non-Mac)', () => {
+  it('has all actions with the pre-existing + VSCode-style chords (non-Mac)', () => {
     const d = defaultBindings()
     expect(d.toggle).toMatchObject({ key: 'k', ctrl: true, meta: false })
     expect(d.next).toMatchObject({ key: ']', ctrl: true })
     expect(d.prev).toMatchObject({ key: '[', ctrl: true })
-    expect(ACTIONS).toEqual(['toggle', 'next', 'prev'])
+    // Layout chords: Ctrl+B left / Ctrl+Shift+B right / Ctrl+J bottom,
+    // Alt+Shift+L / Alt+Shift+R fullscreens (identical on Mac — Alt chords).
+    expect(d.toggleLeftSidebar).toMatchObject({ key: 'b', ctrl: true, shift: false, alt: false })
+    expect(d.toggleRightSidebar).toMatchObject({ key: 'b', ctrl: true, shift: true, alt: false })
+    expect(d.toggleBottom).toMatchObject({ key: 'j', ctrl: true, shift: false, alt: false })
+    expect(d.fullscreenLeft).toMatchObject({ key: 'l', ctrl: false, shift: true, alt: true })
+    expect(d.fullscreenRight).toMatchObject({ key: 'r', ctrl: false, shift: true, alt: true })
+    expect(ACTIONS).toEqual([
+      'toggle', 'next', 'prev',
+      'toggleLeftSidebar', 'toggleRightSidebar', 'toggleBottom',
+      'fullscreenLeft', 'fullscreenRight',
+    ])
   })
 })
 
@@ -100,7 +111,7 @@ describe('bindingFromEvent / formatBinding', () => {
 
 describe('persistence', () => {
   it('round-trips bindings through localStorage', () => {
-    const b = { toggle: { key: 'p', ctrl: true, shift: true, alt: false, meta: false }, next: defaultBindings().next, prev: defaultBindings().prev }
+    const b = { ...defaultBindings(), toggle: { key: 'p', ctrl: true, shift: true, alt: false, meta: false } }
     saveBindings(b)
     expect(loadBindings()).toEqual(b)
   })

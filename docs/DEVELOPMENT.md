@@ -99,6 +99,7 @@ pnpm dsh plugin --profile web remove @deepseek-ai/dsh-my-plugin
 | 侧边栏入口（DOM 注入自愈） | `[data-pane="sidebar"]` + MutationObserver | `dsh-lab-kit/src/client/sidebar-entry.ts` |
 | 中心列面板（覆盖聊天区） | `[data-pane="conversation"]` + html 属性切换 | `dsh-lab-kit/src/client/cockpit-mount.tsx` |
 | 全局快捷键 + 独立 React root | `window.addEventListener('keydown')` + `createRoot` | `dsh-client-ui-session-switcher/src/client/index.ts` |
+| 可选服务（未 inject） | `ctx.get('name')`——Cordis ctx 是 Proxy，未 inject 的属性**裸访问即抛错**（类型断言编译后不生效）；且要在**按键/事件时**解析，`apply()` 一次性捕获会因启动顺序拿到 undefined | `dsh-client-ui-session-switcher/src/client/index.ts` |
 | 设置卡片（设置 > 插件配置） | `ctx.slots.inject('web-ui.plugin.item', …)` | dsh-task-board / dsh-live-stats |
 | 中文语言包 | `ctx.locale.register(NS, { zh, en })` | dsh-task-board/src/client/locales.ts |
 | 注册模型工具以外的服务 | `export class X extends Service`（类插件） | cordis 教程第 3 章 |

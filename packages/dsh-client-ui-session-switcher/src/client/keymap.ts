@@ -1,14 +1,29 @@
 /**
- * Customizable keyboard bindings for the switcher. Three rebindable actions
- * (open palette / next / previous), persisted in localStorage so the user can
- * rebind entirely inside the web GUI — no CLI/TUI config needed. `Alt+K` stays
- * a fixed safety fallback for opening the palette (never rebindable, so a
- * mis-bound toggle cannot lock the palette out).
+ * Customizable keyboard bindings for the switcher. Rebindable actions (open
+ * palette / next / previous / layout chords), persisted in localStorage so
+ * the user can rebind entirely inside the web GUI — no CLI/TUI config needed.
+ * `Alt+K` stays a fixed safety fallback for opening the palette (never
+ * rebindable, so a mis-bound toggle cannot lock the palette out), and `Esc`
+ * is a fixed fullscreen-exit chord (never rebindable — universal muscle
+ * memory).
+ *
+ * The layout chords drive the DSH frame (left sidebar) and the better-sidebar
+ * workbench (right panel + bottom panel + fullscreen) through their public
+ * services; actions no-op cleanly when the target service is not installed.
  * @module @suxeca/dsh-client-ui-session-switcher/client/keymap
  */
 
 /** Rebindable action ids (order drives the settings list). */
-export const ACTIONS = ['toggle', 'next', 'prev'] as const
+export const ACTIONS = [
+  'toggle',
+  'next',
+  'prev',
+  'toggleLeftSidebar',
+  'toggleRightSidebar',
+  'toggleBottom',
+  'fullscreenLeft',
+  'fullscreenRight',
+] as const
 export type ActionId = (typeof ACTIONS)[number]
 
 /** One key chord: a non-modifier key plus the exact modifier set. */
@@ -25,6 +40,11 @@ export const ACTION_LABELS: Record<ActionId, string> = {
   toggle: '打开面板',
   next: '下一个对话',
   prev: '上一个对话',
+  toggleLeftSidebar: '折叠/展开左侧栏',
+  toggleRightSidebar: '折叠/展开右侧栏（工作台）',
+  toggleBottom: '折叠/展开底栏',
+  fullscreenLeft: '左侧栏全屏',
+  fullscreenRight: '右侧栏全屏',
 }
 
 /** localStorage key backing the persisted keymap. */
@@ -52,7 +72,9 @@ export function isModifierKey(key: string): boolean {
   return MODIFIER_KEYS.has(key) || key === ''
 }
 
-/** Default bindings — the pre-existing chords, platform-adjusted. */
+/** Default bindings — the pre-existing chords plus the VSCode-style layout
+ *  chords, platform-adjusted (Ctrl on Win/Linux, Cmd on Mac; Alt+Shift
+ *  chords are identical on both). */
 export function defaultBindings(): Record<ActionId, Binding> {
   const mac = isMac()
   const primary = (): { ctrl: boolean; meta: boolean } => mac
@@ -62,6 +84,13 @@ export function defaultBindings(): Record<ActionId, Binding> {
     toggle: { key: 'k', ...primary(), shift: false, alt: false },
     next: { key: ']', ...primary(), shift: false, alt: false },
     prev: { key: '[', ...primary(), shift: false, alt: false },
+    // VSCode-style: Ctrl/Cmd+B = toggle sidebar; Shift flips to the right
+    // workbench; Ctrl/Cmd+J = toggle the bottom panel.
+    toggleLeftSidebar: { key: 'b', ...primary(), shift: false, alt: false },
+    toggleRightSidebar: { key: 'b', ...primary(), shift: true, alt: false },
+    toggleBottom: { key: 'j', ...primary(), shift: false, alt: false },
+    fullscreenLeft: { key: 'l', ctrl: false, shift: true, alt: true, meta: false },
+    fullscreenRight: { key: 'r', ctrl: false, shift: true, alt: true, meta: false },
   }
 }
 
