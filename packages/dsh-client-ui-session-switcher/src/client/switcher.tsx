@@ -16,8 +16,11 @@ import type { OpenStore } from './open-store.ts'
 import { SKIN_LABELS, type SkinName, loadSkin, nextSkin, saveSkin } from './skins.ts'
 import {
   archivedSessions,
+  cycleAnchor,
   paletteItems,
   relTime,
+  rowIndexOf,
+  sidebarOrder,
   titleOf,
   turnCountOf,
   workspaceIdOwning,
@@ -155,7 +158,12 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
 
   // Reset transient state each time the palette opens; select the current
   // conversation by default and focus the card so management-mode shortcuts
-  // land on the panel.
+  // land on the panel. The selection is computed against the RESET
+  // management list, never the stale search/archive list still in scope for
+  // this render: closing the palette from search or the archived view leaves
+  // those flags set, and the pre-reset list would miss the current
+  // conversation (landing on row 0) while the reset re-renders the
+  // management list with the selection stuck there.
   useEffect(() => {
     if (!open) return
     setQuery('')
@@ -166,8 +174,16 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     setConfiguring(false)
     setCaptureAction(null)
     if (keymapStore.getSnapshot().capturing) keymapStore.endCapture()
-    const currentPos = items.findIndex((item) => item.kind === 'row' && item.session.id === currentId)
-    const rowIndex = currentPos === -1 ? 0 : rowPositions.indexOf(currentPos)
+    const management = paletteItems(sessionsSnap, workspacesSnap, 'grouped')
+    // Anchor on the current session, or its nearest listed ancestor when the
+    // current row is palette-invisible (subagent children) — the same anchor
+    // the Ctrl+[ / Ctrl+] cycle gesture uses.
+    const anchor = cycleAnchor(
+      sidebarOrder(sessionsSnap, workspacesSnap),
+      currentId,
+      sessionsSnap.byId,
+    )
+    const rowIndex = rowIndexOf(management, anchor)
     setIndex(rowIndex === -1 ? 0 : rowIndex)
     cardRef.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate open-transition snapshot read

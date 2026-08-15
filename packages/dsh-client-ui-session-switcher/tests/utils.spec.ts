@@ -13,6 +13,7 @@ import {
   offsetTarget,
   paletteItems,
   relTime,
+  rowIndexOf,
   sidebarOrder,
   titleOf,
   turnCountOf,
@@ -245,6 +246,59 @@ describe('archivedSessions', () => {
     ]
     const ws = workspacesSnap([], { archivedSessionIds: ['a1', 'a2', 'a3'] })
     expect(archivedSessions(sessionsSnap(entries), ws).map((d) => d.session.id)).toEqual(['a1', 'a3'])
+  })
+
+  it('decorates archived rows with their pre-archive workspace (archive keeps the sessionIds slot)', () => {
+    const entries = [
+      session({ id: 'a1' }),
+      session({ id: 'a2' }),
+    ]
+    const ws = workspacesSnap(
+      [workspace('w1', '物理备课', ['a1', 'live']), workspace('w2', '开发', ['a2'])],
+      { archivedSessionIds: ['a1', 'a2'] },
+    )
+    const rows = archivedSessions(sessionsSnap(entries), ws)
+    expect(rows.find((r) => r.session.id === 'a1')?.workspace).toMatchObject({
+      workspaceId: 'w1', title: '物理备课',
+    })
+    expect(rows.find((r) => r.session.id === 'a2')?.workspace).toMatchObject({
+      workspaceId: 'w2', title: '开发',
+    })
+  })
+
+  it('leaves rows no workspace ever claimed ungrouped', () => {
+    const entries = [session({ id: 'a1' })]
+    const ws = workspacesSnap([workspace('w1', '工作区', ['live'])], { archivedSessionIds: ['a1'] })
+    const rows = archivedSessions(sessionsSnap(entries), ws)
+    expect(rows[0]?.workspace).toBeUndefined()
+  })
+})
+
+describe('rowIndexOf', () => {
+  const entries = [
+    session({ id: 's1', updatedAt: 100 }),
+    session({ id: 's2', updatedAt: 300 }),
+    session({ id: 's3', updatedAt: 200 }),
+  ]
+  const ws = workspacesSnap([workspace('a', '工作区A', ['s2', 's3']), workspace('b', '工作区B', ['s1'])])
+
+  it('counts rows only, skipping section headers', () => {
+    const items = paletteItems(sessionsSnap(entries), ws, 'grouped')
+    // [H:A, s2, s3, H:B, s1] → row indices: s2=0, s3=1, s1=2
+    expect(rowIndexOf(items, 's2')).toBe(0)
+    expect(rowIndexOf(items, 's3')).toBe(1)
+    expect(rowIndexOf(items, 's1')).toBe(2)
+  })
+
+  it('returns -1 for absent or missing session ids', () => {
+    const items = paletteItems(sessionsSnap(entries), ws, 'grouped')
+    expect(rowIndexOf(items, 'ghost')).toBe(-1)
+    expect(rowIndexOf(items, undefined)).toBe(-1)
+  })
+
+  it('matches the flat form directly', () => {
+    const items = paletteItems(sessionsSnap(entries), ws, 'flat')
+    expect(rowIndexOf(items, 's3')).toBe(1)
   })
 })
 

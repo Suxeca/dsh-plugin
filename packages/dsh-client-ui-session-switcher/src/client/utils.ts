@@ -134,6 +134,25 @@ export type PaletteItem =
 export type PaletteRow = Extract<PaletteItem, { readonly kind: 'row' }>
 
 /**
+ * The row-only index of a session in a palette list (headers skipped),
+ * or -1 when the session is absent or no id is given. This is the selection
+ * position the palette's keyboard navigation uses.
+ */
+export function rowIndexOf(
+  items: readonly PaletteItem[],
+  sessionId: string | undefined,
+): number {
+  if (sessionId === undefined) return -1
+  let row = 0
+  for (const item of items) {
+    if (item.kind !== 'row') continue
+    if (item.session.id === sessionId) return row
+    row += 1
+  }
+  return -1
+}
+
+/**
  * The palette list: in management mode, sessions grouped under workspace
  * section headers (sidebar layout); empty sections are skipped. The flat
  * form feeds search and the archived view.
@@ -175,20 +194,26 @@ export function paletteItems(
 
 /**
  * Archived (non-subagent) sessions for the archived view, recency order.
- * The sidebar hides archived rows everywhere, so this list is flat.
+ * The sidebar hides archived rows everywhere, so this list is flat. Each
+ * entry carries its owning workspace when one exists: archiving never
+ * touches workspace accounting (the host keeps the `sessionIds` slot), so
+ * the pre-archive group is still derivable from the workspace items; only
+ * sessions no workspace ever claimed stay ungrouped.
  */
 export function archivedSessions(
   sessionsSnap: SessionListStateLike,
   workspacesSnap: WorkspaceListStateLike,
 ): DecoratedSession[] {
   const byId = sessionsSnap.byId ?? {}
+  const workspaceItems = workspacesSnap.items ?? []
   const archivedIds = new Set(workspacesSnap.archivedSessionIds ?? [])
   const entries: DecoratedSession[] = []
   for (const id of sessionsSnap.ids ?? []) {
     const session = byId[id]
     if (session === undefined || session.origin === 'subagent') continue
     if (!archivedIds.has(id)) continue
-    entries.push({ session })
+    const workspace = workspaceItems.find((w) => w.sessionIds.includes(id))
+    entries.push(workspace === undefined ? { session } : { session, workspace })
   }
   entries.sort((a, b) => byRecency(a.session, b.session))
   return entries
