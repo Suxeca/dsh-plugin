@@ -18,3 +18,6 @@ packages/dsh-secure-context-polyfill/
 # 本机正在使用的 better-sidebar 修订快照；只在 README 记录官方上游，
 # 不把不可从上游获取的本地 root commit 误登记为损坏的 submodule。
 third-party/dsh-better-sidebar/
+
+# 个人交接笔记（已移出仓库至 ~/.dsh/notes/，防止误提交）
+PLUGIN-HANDOFF.md

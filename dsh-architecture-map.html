@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DSH 架构地图 · zoom-out</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel2: #1c2330;
+    --border: #2d3748;
+    --text: #e6edf3;
+    --muted: #8b98a9;
+    --app: #a371f7;
+    --comp: #58a6ff;
+    --core: #3fb950;
+    --seam: #d29922;
+    --evt: #f778ba;
+    --flow: #6e7681;
+    --font: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --mono: "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text); font-family: var(--font);
+    padding: 28px 20px 60px; line-height: 1.5;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  /* ---------- header ---------- */
+  h1 { font-size: 26px; letter-spacing: .5px; }
+  h1 .dim { color: var(--muted); font-weight: 400; font-size: 16px; margin-left: 10px; }
+  .sub { color: var(--muted); margin: 6px 0 16px; font-size: 14px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px 12px; font-size: 12px; color: var(--muted);
+    cursor: pointer; user-select: none; transition: .15s;
+  }
+  .chip:hover { border-color: var(--text); color: var(--text); }
+  .chip .dot { width: 10px; height: 10px; border-radius: 3px; }
+  .chip.active { outline: 1px solid currentColor; }
+  .chip.off { opacity: .35; }
+
+  /* ---------- layers ---------- */
+  .layer {
+    position: relative;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px 16px 16px; margin-bottom: 14px;
+  }
+  .layer.dim { opacity: .25; transition: opacity .2s; }
+  .layer-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .layer-tag {
+    font-size: 11px; font-weight: 700; letter-spacing: 1px;
+    padding: 2px 8px; border-radius: 4px;
+  }
+  .layer-title { font-size: 15px; font-weight: 600; }
+  .layer-desc { font-size: 12px; color: var(--muted); }
+
+  .row { display: flex; flex-wrap: wrap; gap: 10px; }
+  .node {
+    background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 12px; font-size: 13px;
+    cursor: default; position: relative; transition: .15s;
+  }
+  .node:hover { transform: translateY(-1px); border-color: var(--text); }
+  .node .n-title { font-weight: 600; font-size: 13px; }
+  .node .n-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .node.k-app    { border-color: #7c3aed55; }
+  .node.k-app:hover    { border-color: var(--app); }
+  .node.k-comp   { border-color: #1f6feb55; }
+  .node.k-comp:hover   { border-color: var(--comp); }
+  .node.k-core   { border-color: #23863655; }
+  .node.k-core:hover   { border-color: var(--core); }
+  .node.k-seam   { border-color: #9e6a0355; }
+  .node.k-seam:hover   { border-color: var(--seam); }
+  .node.k-evt    { border-color: #db61a255; }
+  .node.k-evt:hover    { border-color: var(--evt); }
+  .node.k-flow   { border-color: #484f5855; }
+  .node.k-flow:hover   { border-color: var(--flow); }
+  .node .badge {
+    display: inline-block; font-family: var(--mono); font-size: 10px;
+    color: var(--muted); border: 1px solid var(--border); border-radius: 4px;
+    padding: 0 5px; margin-left: 6px; vertical-align: 1px;
+  }
+  .node .gloss { font-size: 10px; color: var(--muted); margin-top: 3px; }
+
+  /* arrows between layers */
+  .flow-arrow {
+    text-align: center; color: var(--flow); font-size: 18px;
+    padding: 2px 0 8px; line-height: 1;
+  }
+  .flow-arrow .cap { display: block; font-size: 10.5px; color: var(--muted); margin-bottom: 4px; letter-spacing: .5px; }
+
+  /* ---------- grid column ---------- */
+  .grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 14px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .evt-list { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+  .evt-row { display: flex; gap: 10px; align-items: flex-start; }
+  .evt-row .lbl {
+    flex: 0 0 86px; font-family: var(--mono); font-size: 11px; font-weight: 600;
+    padding: 3px 6px; border-radius: 4px; text-align: center;
+  }
+  .evt-row .txt { font-size: 12px; color: var(--muted); }
+  .evt-row .txt b { color: var(--text); font-weight: 600; }
+
+  /* turn strip */
+  .turn-strip {
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 11px; margin-top: 10px;
+  }
+  .tstep {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 8px; color: var(--muted); white-space: nowrap;
+  }
+  .tstep.hot { color: var(--text); border-color: #23863688; }
+  .tarrow { color: var(--flow); }
+
+  /* seam triad */
+  .triad { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .triad .role {
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; flex: 1 1 150px;
+  }
+  .triad .role .rt { font-weight: 700; font-size: 11px; letter-spacing: 1px; }
+  .triad .role .rp { font-family: var(--mono); font-size: 11px; margin-top: 4px; color: var(--text); }
+  .triad .role .rd { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+  .triad .link { color: var(--seam); font-size: 16px; }
+
+  /* expand mapping */
+  .map-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  .map-table td, .map-table th {
+    border: 1px solid var(--border); padding: 6px 10px; text-align: left;
+  }
+  .map-table th { background: var(--panel2); font-size: 11px; color: var(--muted); font-weight: 600; }
+  .map-table code { font-family: var(--mono); font-size: 11px; background: #21262d; padding: 1px 5px; border-radius: 4px; }
+
+  /* tooltip */
+  #tip {
+    position: fixed; z-index: 99; pointer-events: none; display: none;
+    max-width: 300px; background: #0b0f14; border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; font-size: 12px; color: var(--text);
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  }
+  #tip .tt { font-weight: 700; margin-bottom: 4px; font-size: 12.5px; }
+  #tip .td { color: var(--muted); font-size: 11.5px; }
+
+  footer { margin-top: 20px; font-size: 12px; color: var(--muted); }
+  footer code { font-family: var(--mono); font-size: 11px; }
+  a { color: var(--comp); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>DSH 架构地图 <span class="dim">DeepSeek Harness · zoom-out 视图</span></h1>
+  <div class="sub">一张图看懂：插件化 Agent Harness 的入口 → 组合 → 核心循环 → 能力 Seam。悬停节点看术语解释，点击图例可聚焦某一层。</div>
+
+  <div class="legend" id="legend">
+    <span class="chip" data-k="app"><span class="dot" style="background:var(--app)"></span>入口</span>
+    <span class="chip" data-k="comp"><span class="dot" style="background:var(--comp)"></span>组合</span>
+    <span class="chip" data-k="core"><span class="dot" style="background:var(--core)"></span>核心循环</span>
+    <span class="chip" data-k="seam"><span class="dot" style="background:var(--seam)"></span>能力 Seam</span>
+    <span class="chip" data-k="evt"><span class="dot" style="background:var(--evt)"></span>事件域</span>
+  </div>
+
+  <!-- ============ LAYER 0 : APPS ============ -->
+  <div class="layer" data-layer="app">
+    <div class="layer-head">
+      <span class="layer-tag" style="background:#7c3aed33;color:var(--app)">L0 · 入口</span>
+      <span class="layer-title">产品外壳 —— 都是同一棵插件树的薄壳</span>
+      <span class="layer-desc">没有"特权内核"，入口只负责启动和装配</span>
+    </div>
+    <div class="row">
+      <div class="node k-app" data-tip="CLI 入口：解析命令行、加载 profile、启动 Cordis 树（apps/cli）。">dsh CLI<span class="badge">apps/cli</span></div>
+      <div class="node k-app" data-tip="浏览器应用：Host 进程 + Web Client（apps/web）。你现在正在用的 GUI 就是它。">Web App（Host + Client）<span class="badge">apps/web</span></div>
+      <div class="node k-app" data-tip="一次性运行器：无服务器、跑完即退（packages/bundle/headless）。">headless 运行器<span class="badge">apps/…</span></div>
+    </div>
+  </div>
+  <div class="flow-arrow"><span class="cap">启动时按序叠加，产出</span>▼</div>
+
+  <!-- ============ LAYER 1 : COMPOSITION ============ -->
+  <div class="layer" data-layer="comp">
+    <div class="layer-head">
+      <span class="layer-tag" style="background:#1f6feb33;color:var(--comp)">L1 · 组合</span>
+      <span class="layer-title">Profile + Bundle + Patch —— 配置即架构</span>
+      <span class="layer-desc">运行中的 dsh = 一棵插件树（cordis.yml 行项），每一层都可被上层 patch 替换</span>
+    </div>
+    <div class="row">
+      <div class="node k-comp" data-tip="Profile：Harness home 中的具名组装，列出叠放的 bundle、存放树外插件与用户自己的 cordis.patch.yml。web / headless 随发行版交付。">Profile<span class="badge">~/.dsh/</span><div class="gloss">web · headless</div></div>
+      <div class="node k-comp" data-tip="Bundle：Cordis 配置 + 挂载代码的分发格式。dsh-base 是每个 profile 的第一层：模型适配器、工具、持久化、沙箱与审批、凭据、遥测。">Bundle<span class="badge">packages/bundle</span><div class="gloss">dsh-base → dsh-web-app / dsh-headless</div></div>
+      <div class="node k-comp" data-tip="Patch：按 id 定位某个条目并替换其整个 config，或插入新条目。顺序：bundle → profile patch → home patch → --patch overlay。">cordis.patch.yml<span class="badge">叠加层</span><div class="gloss">profile → home → --patch</div></div>
+      <div class="node k-comp" data-tip="插件树：所有服务、事件、工具、UI 都是挂在树上的插件行。没有任何需要打补丁的特权内核。">🌳 插件树<span class="badge">dsh --dump-config 可见</span><div class="gloss">每条配置项 = 一个插件行</div></div>
+    </div>
+  </div>
+  <div class="flow-arrow"><span class="cap">树上的核心行（core/* 包提供服务）</span>▼</div>
+
+  <!-- ============ LAYER 2 : CORE LOOP ============ -->
+  <div class="layer" data-layer="core">
+    <div class="layer-head">
+      <span class="layer-tag" style="background:#23863633;color:var(--core)">L2 · 核心循环</span>
+      <span class="layer-title">运行时心脏 —— 会话日志是真源，模型可见即已记录</span>
+      <span class="layer-desc">services 由 core 包提供，agent-loop 默认驱动器实现 Agent 接口</span>
+    </div>
+    <div class="row">
+      <div class="node k-core" data-tip="会话日志：仅追加的 SessionEvent 流，内存存储。deriveMessages() 从它投影出模型历史；fork/恢复/回放/遥测全部派生自此。">📜 session<span class="badge">ctx.sessions</span><div class="gloss">SessionEvent 日志 · 真源</div></div>
+      <div class="node k-core" data-tip="提示词组装：每个 step 读取插件注册的提示词片段 + 工具 schema，拼装成模型请求。">🧩 systemPrompt<span class="badge">ctx.systemPrompt</span></div>
+      <div class="node k-core" data-tip="Agent 接口 + 活跃 agent 注册表 + agent/* 事件。agent.ctx 提供按 agent 作用域的注册。">🤖 agent<span class="badge">ctx.agents</span><div class="gloss">Agent 接口 · agent/* 事件</div></div>
+      <div class="node k-core" data-tip="默认驱动器：实现 Agent 接口，跑 turn/step 循环（领取输入 → 组装 → 请求 → 工具 → 循环）。">🔁 agent-loop<span class="badge">ctx.agentLoop</span></div>
+      <div class="node k-core" data-tip="LLM seam：消息/流式词汇表 + 适配器注册点。换模型 = 换适配器（llm-deepseek、llm-pi-ai、llm-retry…）。">⚡ llm<span class="badge">ctx.llm</span><div class="gloss">Seam：定义 + 适配器</div></div>
+      <div class="node k-core" data-tip="工具注册表 + 带把关的执行流水线：tools/pre-execute → execute → post-execute（waterfall 事件）。">🛠 tools<span class="badge">ctx.tools</span><div class="gloss">注册表 · 把关流水线</div></div>
+      <div class="node k-core" data-tip="按 agent 划分作用域的注册原语：scope-local 注册、shadowing（最具体者胜出）、restriction 过滤。库，无 ctx 键。">🔬 scope<span class="badge">core/scope</span><div class="gloss">agent-scope · shadowing · restriction</div></div>
+    </div>
+  </div>
+  <div class="flow-arrow"><span class="cap">循环通过事件域驱动，能力全部来自</span>▼</div>
+
+  <!-- ============ LAYER 3 : SEAMS ============ -->
+  <div class="layer" data-layer="seam">
+    <div class="layer-head">
+      <span class="layer-tag" style="background:#9e6a0333;color:var(--seam)">L3 · 能力 Seam</span>
+      <span class="layer-title">可替换能力 —— 换一个 Provider 就改变整个产品</span>
+      <span class="layer-desc">每个 seam = Service Definition + Provider(s) + Consumer（通常是面向模型的工具）</span>
+    </div>
+    <div class="row">
+      <div class="node k-seam" data-tip="文件系统 seam：fs-local / fs-sandbox / fs-e2b 提供方 + tool-fs 等消费者。把 fs 指向远程沙箱，Bash/PTY/LSP 一起搬过去。">📁 fs<span class="badge">fs/*</span></div>
+      <div class="node k-seam" data-tip="Shell 规范范例：dsh-shell（定义）→ dsh-bash-local / dsh-bash-sandbox（提供方）→ dsh-tool-bash（消费者）。">🐚 shell<span class="badge">shell/*</span></div>
+      <div class="node k-seam" data-tip="进程执行：本地后端经 subprocess spawn；e2b 提供远程执行世界。">⚙️ subprocess<span class="badge">subprocess/*</span></div>
+      <div class="node k-seam" data-tip="沙箱与审批：限制所启动进程，消费方在启动前包装 argv。">🛡 sandbox<span class="badge">sandbox/*</span></div>
+      <div class="node k-seam" data-tip="子 agent seam：同一接口后千差万别——in-process driver、fork、spawn、ACP、claude-code、codex、dsh-sdk…">🧵 subagent<span class="badge">subagent/*</span></div>
+      <div class="node k-seam" data-tip="MCP 客户端接入（model context protocol）。">🔌 mcp<span class="badge">mcp/*</span></div>
+      <div class="node k-seam" data-tip="Web 能力：fetch / search（deepseek、exa、perplexity 提供方）。">🌐 web<span class="badge">web/*</span></div>
+      <div class="node k-seam" data-tip="凭据管理：credentials-local 等提供方；密码引用为 env:/vault: 形式，不落日志。">🔑 credentials<span class="badge">credentials/*</span></div>
+      <div class="node k-seam" data-tip="遥测 seam：telemetry/* 事件附加策略与适配器。">📡 telemetry<span class="badge">telemetry/*</span></div>
+      <div class="node k-seam" data-tip="持久化终端：注册 ctx.terminals 后端 + dsh-tool-terminal。">🖥 terminals<span class="badge">terminal/*</span></div>
+      <div class="node k-seam" data-tip="上下文溢出（spill）seam：spill-local + spill-policy。">💧 spill<span class="badge">spill/*</span></div>
+      <div class="node k-seam" data-tip="同会话目标：ctx.goals，经 agent/* 续跑（Goal Round）。">🎯 goal<span class="badge">goal/*</span></div>
+      <div class="node k-seam" data-tip="计划模式：plan-mode（exit_plan_mode 等工具背后的服务）。">🗺 plan<span class="badge">plan/*</span></div>
+      <div class="node k-seam" data-tip="任务列表：tool-todo。">✅ todo<span class="badge">todo/*</span></div>
+      <div class="node k-seam" data-tip="技能 seam：skill + skill-filesystem + tool-skill。">📘 skill<span class="badge">skill/*</span></div>
+      <div class="node k-seam" data-tip="会话查询与导出：session-query + sqlite。">🔎 session-query<span class="badge">session-query/*</span></div>
+      <div class="node k-seam" data-tip="上下文压缩 seam：compaction + basic + tool-result-pruner。">🗜 compaction<span class="badge">compaction/*</span></div>
+      <div class="node k-seam" data-tip="工作流编排：workflow（fan-out 子 agent 编排）。">🔀 workflow<span class="badge">workflow/*</span></div>
+      <div class="node k-seam" data-tip="代码执行运行时：code-runtime + worker-thread。">🧮 code-runtime<span class="badge">code-runtime/*</span></div>
+      <div class="node k-seam" data-tip="工作区抽象：workspace（会话工作目录/文件系统视图）。">🗂 workspace<span class="badge">workspace/*</span></div>
+      <div class="node k-seam" data-tip="后台任务：ctx.jobs；job_* 工具收集/停止。">⏳ jobs<span class="badge">jobs/*</span></div>
+      <div class="node k-seam" data-tip="定时调度：schedule（5 段 cron，如 0 23 * * *）。">⏰ schedule<span class="badge">schedule/*</span></div>
+      <div class="node k-seam" data-tip="语言服务协议 seam：lsp。">🧭 lsp<span class="badge">lsp/*</span></div>
+    </div>
+  </div>
+
+  <!-- ============ GRID : EVENTS + TURN ============ -->
+  <div class="grid">
+    <!-- left: events -->
+    <div class="layer" data-layer="evt">
+      <div class="layer-head">
+        <span class="layer-tag" style="background:#db61a233;color:var(--evt)">✳ 事件域</span>
+        <span class="layer-title">事件 = 扩展点，选对域是大多数改动的第一个决定</span>
+      </div>
+      <div class="evt-list">
+        <div class="evt-row">
+          <span class="lbl" style="background:#db61a222;color:var(--evt)">session/*</span>
+          <span class="txt"><b>持久事实</b>：追加到日志并经 session/event 广播。事实必须跨重载存在时用它。<code>turn/*</code> <code>step/*</code> <code>user/message</code> <code>assistant/*</code> <code>tool/*</code></span>
+        </div>
+        <div class="evt-row">
+          <span class="lbl" style="background:#3fb95022;color:var(--core)">agent/*</span>
+          <span class="txt"><b>进行中的工作</b>：携带活跃 Agent（inbox、步骤、状态、请求、验证、续跑）。观察/拦截用。<code>agent/pre-step</code> <code>agent/request</code> <code>agent/turn-stopping</code></span>
+        </div>
+        <div class="evt-row">
+          <span class="lbl" style="background:#58a6ff22;color:var(--comp)">capability</span>
+          <span class="txt"><b>seam 策略</b>：无需导入循环即向 <code>fs/*</code> <code>tools/*</code> <code>telemetry/*</code> 附加策略与适配器。</span>
+        </div>
+      </div>
+      <div class="turn-strip">
+        <span class="tstep hot">turn/start</span><span class="tarrow">→</span>
+        <span class="tstep">claim 输入</span><span class="tarrow">→</span>
+        <span class="tstep hot">agent/pre-step</span><span class="tarrow">→</span>
+        <span class="tstep">step/start</span><span class="tarrow">→</span>
+        <span class="tstep hot">agent/request</span><span class="tarrow">→</span>
+        <span class="tstep">llm/stream</span><span class="tarrow">→</span>
+        <span class="tstep">assistant/chunk*</span><span class="tarrow">→</span>
+        <span class="tstep">tool/call*</span><span class="tarrow">→</span>
+        <span class="tstep hot">tools/pre→execute→post</span><span class="tarrow">→</span>
+        <span class="tstep">tool/result*</span><span class="tarrow">→</span>
+        <span class="tstep">step/end</span><span class="tarrow">→</span>
+        <span class="tstep">agent/turn-stopping</span><span class="tarrow">→</span>
+        <span class="tstep hot">turn/end</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:8px">🔴 高亮 = waterfall 事件（监听器必须 <code>next()</code> 委托下去）；agent/turn-stopping 是 serial 事件。step = 一次模型请求 + 它调用的工具；turn = 零个或多个 step。</div>
+    </div>
+
+    <!-- right: seam triad -->
+    <div class="layer" data-layer="seam">
+      <div class="layer-head">
+        <span class="layer-tag" style="background:#9e6a0333;color:var(--seam)">🔎 解剖一个 Seam</span>
+        <span class="layer-title">shell 规范范例：三个角色，一个能力</span>
+      </div>
+      <div class="triad">
+        <div class="role" style="background:#9e6a0318;border:1px solid #9e6a0355">
+          <div class="rt" style="color:var(--seam)">① Service Definition</div>
+          <div class="rp">dsh-shell</div>
+          <div class="rd">声明接口（ShellExecutor 抽象类），拥有自己的 ctx.shell</div>
+        </div>
+        <span class="link">◀─ 实现 ─▶</span>
+        <div class="role" style="background:#23863618;border:1px solid #23863655">
+          <div class="rt" style="color:var(--core)">② Service Provider</div>
+          <div class="rp">dsh-bash-local / dsh-bash-sandbox</div>
+          <div class="rd">可替换的实现；换一个提供方 = 换整个执行世界</div>
+        </div>
+        <span class="link">◀─ 注入 ─▶</span>
+        <div class="role" style="background:#1f6feb18;border:1px solid #1f6feb55">
+          <div class="rt" style="color:var(--comp)">③ Consumer</div>
+          <div class="rp">dsh-tool-bash</div>
+          <div class="rd">面向模型的工具；schema 进入提示词组装</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:10px">
+        🧭 想扩展 DSH？把「目标 → 机制」对号入座：
+      </div>
+      <table class="map-table">
+        <tr><th>目标</th><th>机制</th></tr>
+        <tr><td>加模型提供方</td><td>在 <code>ctx.llm</code> 注册适配器</td></tr>
+        <tr><td>加面向模型能力</td><td>在 <code>ctx.tools</code> 注册；schema 进提示词组装</td></tr>
+        <tr><td>会话有不同能力集合</td><td>组装 agent preset；服务行需 <code>isolate</code> realm</td></tr>
+        <tr><td>加 shell 执行</td><td>注册 <code>ctx.shell</code> 后端</td></tr>
+        <tr><td>拦截请求/工具/轮次</td><td><code>agent/*</code> 或 <code>tools/*</code> 事件</td></tr>
+        <tr><td>加模型可见上下文</td><td><code>agent.inject()</code> → 下一次获准请求</td></tr>
+        <tr><td>fork 活跃会话</td><td><code>ctx.sessions.fork(source, boundary?)</code></td></tr>
+        <tr><td>注册限定单个 agent</td><td>该 agent 的 <code>agent.ctx</code></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    依据 <a href="https://deepseek-harness.github.io/deepseek-harness/reference/">官方架构文档</a> 与本机源码 <code>docs/glossary.zh.md</code>、<code>docs/module-graph.zh.md</code>、<code>docs/capability-seams.zh.md</code> 绘制。
+    实际配置树：<code>dsh --profile web --dump-config</code> · 事件映射：<code>docs/event-producer-consumer.md</code>
+  </footer>
+</div>
+
+<div id="tip"><div class="tt"></div><div class="td"></div></div>
+
+<script>
+  const tip = document.getElementById('tip');
+  const nodes = document.querySelectorAll('.node[data-tip]');
+  nodes.forEach(n => {
+    n.addEventListener('mouseenter', e => {
+      tip.querySelector('.tt').textContent = n.textContent.trim().split(' ')[0];
+      tip.querySelector('.td').textContent = n.dataset.tip;
+      tip.style.display = 'block';
+    });
+    n.addEventListener('mousemove', e => {
+      tip.style.left = Math.min(e.clientX + 14, innerWidth - 320) + 'px';
+      tip.style.top = (e.clientY + 14) + 'px';
+    });
+    n.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  });
+
+  // legend focus
+  const chips = document.querySelectorAll('.chip');
+  const layers = document.querySelectorAll('.layer[data-layer]');
+  chips.forEach(c => {
+    c.addEventListener('click', () => {
+      const k = c.dataset.k;
+      const on = c.classList.toggle('active');
+      layers.forEach(l => {
+        if (!on) { l.classList.remove('dim'); return; }
+        l.classList.toggle('dim', l.dataset.layer !== k);
+      });
+      chips.forEach(o => { if (o !== c) o.classList.toggle('off', on); });
+    });
+  });
+</script>
+</body>
+</html>

@@ -10,3 +10,7 @@
 	path = third-party/dsh-conversation-share
 	url = https://github.com/bill9109/dsh-conversation-share.git
 	branch = main
+[submodule "third-party/dsh-super-injector"]
+	path = third-party/dsh-super-injector
+	url = https://github.com/yjh051108/dsh-super-injector.git
+	branch = main

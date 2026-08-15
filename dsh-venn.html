@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profile · Bundle · Patch 维恩图</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #2d3748;
+    --text: #e6edf3; --muted: #8b98a9;
+    --bundle: #58a6ff; --profile: #3fb950; --patch: #d29922;
+    --font: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); padding: 30px 20px 60px; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 24px; }
+  h1 .dim { color: var(--muted); font-weight: 400; font-size: 14px; margin-left: 8px; }
+  .sub { color: var(--muted); margin: 6px 0 20px; font-size: 13.5px; }
+
+  /* ---------- venn canvas ---------- */
+  .canvas {
+    position: relative;
+    width: 640px; height: 520px; margin: 0 auto;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; overflow: hidden;
+  }
+  .circle { position: absolute; width: 300px; height: 300px; border-radius: 50%; }
+  .c-bundle  { left: 25px;  top: 205px; background: rgba(88,166,255,.20); border: 2px solid var(--bundle); }
+  .c-profile { left: 315px; top: 15px;  background: rgba(63,185,80,.20);  border: 2px solid var(--profile); }
+  .c-patch   { left: 315px; top: 205px; background: rgba(210,153,34,.20); border: 2px solid var(--patch); }
+
+  /* region labels */
+  .lbl {
+    position: absolute; font-size: 11.5px; line-height: 1.45; text-align: center;
+    color: var(--muted); pointer-events: none;
+  }
+  .lbl b { display: block; font-size: 12.5px; color: var(--text); margin-bottom: 2px; }
+  .lbl .hint { font-size: 10px; opacity: .85; }
+  .only-bundle  { left: 55px;  top: 300px; width: 120px; }
+  .only-profile { left: 430px; top: 60px;  width: 130px; }
+  .only-patch   { left: 430px; top: 360px; width: 130px; }
+  .b-p   { left: 150px; top: 100px; width: 180px; }
+  .b-pt  { left: 150px; top: 295px; width: 180px; }
+  .p-pt  { left: 400px; top: 190px; width: 150px; }
+  .center { left: 265px; top: 180px; width: 120px; }
+
+  /* colored accents per region */
+  .b-p b   { color: #7ee787; }        /* green-ish on blue+green */
+  .b-pt b  { color: #e3b341; }        /* gold on blue+orange */
+  .p-pt b  { color: #e3b341; }
+  .center b { color: var(--text); }
+
+  /* ---------- legend / sequence ---------- */
+  .legend { display: flex; gap: 18px; justify-content: center; margin: 18px 0 8px; flex-wrap: wrap; }
+  .legend span { font-size: 12.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+  .seq {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 18px; margin-top: 16px; font-size: 13px;
+  }
+  .seq h3 { font-size: 14px; margin-bottom: 8px; }
+  .seq .flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; }
+  .seq .step {
+    background: #21262d; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px;
+  }
+  .seq .step.hot { border-color: #23863688; color: var(--text); }
+  .seq .arrow { color: var(--muted); }
+  .seq .note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .seq code { font-family: Consolas, monospace; font-size: 11.5px; background: #21262d; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Profile · Bundle · Patch 的关系 <span class="dim">维恩图 · 三个概念互相渗透，不是三个独立盒子</span></h1>
+  <div class="sub">每个圆代表一个概念，圆的重叠区 = 两者/三者的共同点。真正"干活"的只有中心：启动叠加产出的插件树。</div>
+
+  <div class="canvas">
+    <div class="circle c-bundle"></div>
+    <div class="circle c-profile"></div>
+    <div class="circle c-patch"></div>
+
+    <!-- only regions -->
+    <div class="lbl only-bundle"><b>Bundle</b>发货的包：<span class="hint">npm 包 · 随版本升级 · 开箱即用</span></div>
+    <div class="lbl only-profile"><b>Profile</b>本机清单：<span class="hint">~/.dsh/profiles/web/ · 可换模板</span></div>
+    <div class="lbl only-patch"><b>Patch</b>售后微调：<span class="hint">按 id 定位 · 替换整个 config · last-write-wins</span></div>
+
+    <!-- pairwise overlaps -->
+    <div class="lbl b-p"><b>Profile ∩ Bundle</b>清单引用货：<span class="hint">profile 的 bundles 数组列出要装哪些 bundle</span></div>
+    <div class="lbl b-pt"><b>Bundle ∩ Patch</b>货的内部就是补丁：<span class="hint">bundle 的内容 = 一份 cordis.patch.yml</span></div>
+    <div class="lbl p-pt"><b>Profile ∩ Patch</b>清单也有补丁：<span class="hint">~/.dsh/cordis.patch.yml 微调清单里的行</span></div>
+
+    <!-- center -->
+    <div class="lbl center"><b>三者交汇</b>启动时按序叠加<span class="hint">bundle → 用户 patch → --patch<br>→ 🌳 插件树（唯一产物）</span></div>
+  </div>
+
+  <div class="legend">
+    <span><i style="background:var(--bundle)"></i>Bundle 组合包</span>
+    <span><i style="background:var(--profile)"></i>Profile 配置档</span>
+    <span><i style="background:var(--patch)"></i>Patch 补丁</span>
+  </div>
+
+  <div class="seq">
+    <h3>启动顺序（三者的协作方式）</h3>
+    <div class="flow">
+      <span class="step">空条目列表</span><span class="arrow">→</span>
+      <span class="step hot">按 Profile 清单应用 Bundle 1,2,3…</span><span class="arrow">→</span>
+      <span class="step">Profile 的 patch</span><span class="arrow">→</span>
+      <span class="step">home 级 <code>cordis.patch.yml</code></span><span class="arrow">→</span>
+      <span class="step hot">--patch overlay</span><span class="arrow">→</span>
+      <span class="step hot">🌳 插件树</span>
+    </div>
+    <div class="note">每行只能被 patch 按 id 替换整个 config（不合并）；后写者赢。任何一行都可被再上层覆盖——这就是"配置即架构"。</div>
+  </div>
+</div>
+</body>
+</html>

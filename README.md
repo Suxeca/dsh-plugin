@@ -13,9 +13,10 @@
 | 科研台 Lab Cockpit | `@deepseek-ai/dsh-lab-kit`（本仓库） | 侧边栏「研究台」扫描展示工作区研究项目 | 本地 link | ✅ 在用 |
 | Better Sidebar 工作台 | [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) | 文件管理/编辑预览/PDF/终端/Git/浏览器/任务面板 | npm / GitHub | ✅ 在用 v0.12.x |
 | 安全上下文补丁 | 私人本地插件（源码不入库） | 浏览器兼容补丁：polyfill 缺失的 `crypto.randomUUID` / `AbortSignal.timeout` / `AbortSignal.any` | 私人本地 link | ✅ 在用 |
-| 视觉工具箱 | `@dsh-external/dsh-vision-toolkit`（[submodule](third-party/dsh-vision-toolkit)） | 原生视觉工具：识图、OCR、像素级定位、UI 还原 | 本地 link | ✅ 在用 v0.1.6 |
-| 记忆系统 | `sage-mem`（[submodule](third-party/sage-mem)） | 跨会话记忆：自动沉淀 + 检索注入，中文优先 | 本地 link | ✅ 在用 |
+| 视觉工具箱 | `@anionex/dsh-vision-toolkit`（[submodule](third-party/dsh-vision-toolkit)） | 原生视觉工具：识图、OCR、像素级定位、UI 还原 | npm | ✅ 在用（本地 link 0.1.2 · 上游 v0.1.6） |
+| 记忆系统 | `sage-mem`（[submodule](third-party/sage-mem)） | 跨会话记忆：自动沉淀 + 检索注入，中文优先 | GitHub 源 | ✅ 在用（本地 link 0.1.1 · 上游 0.1.3） |
 | 对话分享 | `@bill9109/dsh-conversation-share`（[submodule](third-party/dsh-conversation-share)） | 选取对话片段分享为品牌化 PNG 长图 | GitHub 源 | ✅ 在用 v0.1.1 |
+| 超级模组注入器 | `@yjh051108/dsh-super-injector`（[submodule](third-party/dsh-super-injector)） | 运行时注入任意插件包，免重启；热重载/自重载/卸载即净 | GitHub 源 | ✅ 在用 v0.3.1 |
 
 ## 自研插件（本仓库 `packages/`）
 
@@ -86,6 +87,7 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-lab-kit
 
 - 上游：<https://github.com/gezi-wen/sage-mem>
 - 架构：DSH 插件 → HTTP → Bun 常驻 worker → SQLite（FTS5 trigram）
+- 安装：`dsh plugin --profile web add github:gezi-wen/sage-mem`（另需按上游说明常驻 worker 服务）
 
 ### 7. dsh-conversation-share · 对话分享
 
@@ -103,6 +105,14 @@ VSCode 风格右侧栏 + 底部面板：文件树、文本/Markdown/图片/PDF �
 - **高权限边界**：Host 侧具备文件读写、PTY shell、Git 和浏览器能力；它不是只读预览器。仅应安装在受信任的 DSH 实例和严格受控的网络访问边界内。
 - 本机当前目录含一份行为修订快照；README 只记录官方 GitHub 上游，不把该不可移植的本地 root commit 作为 submodule 发布。
 
+### 9. dsh-super-injector · 超级模组注入器
+
+DSH 生态的 **BepInEx 式模组注入入口**：运行时把任意本地插件包注入运行中的 web，不碰 patch / package.json / bundles 列表、不重启进程。**注入即完整生效（host 工具 + client UI）**。自带热重载、自重载（失败自动 rollback）、卸载即净、一键自检。
+
+- 上游：<https://github.com/yjh051108/dsh-super-injector>（v0.3.1，按 [docs/SPEC.md](third-party/dsh-super-injector/docs/SPEC.md) 源码契约重构）
+- 安装（引导一次，之后万物皆可运行时注入）：`dsh plugin --profile web add github:yjh051108/dsh-super-injector`
+- **高权限边界**：注入器以进程内代码执行能力运行任意插件包——仅应安装在受信任的 DSH 实例上。
+
 ## 目录结构
 
 ```
@@ -114,8 +124,11 @@ third-party/               # 收录的在用插件（公开上游用 submodule�
   dsh-vision-toolkit/
   sage-mem/
   dsh-conversation-share/
+  dsh-super-injector/
   dsh-better-sidebar/      # 本机修订快照（gitignored；官方上游见插件说明）
 docs/DEVELOPMENT.md        # 插件开发指南（新建包、构建、安装、扩展点速查）
+dsh-architecture-map.html  # DSH 架构地图（zoom-out 交互可视化）
+dsh-venn.html              # Profile · Bundle · Patch 维恩图
 ```
 
 ## 安装与使用
@@ -144,4 +157,5 @@ pnpm build          # 构建全部插件
 ## 相关文档
 
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — 插件开发指南
+- [`dsh-architecture-map.html`](dsh-architecture-map.html) / [`dsh-venn.html`](dsh-venn.html) — DSH 架构可视化
 - 上游参考：deepseek-harness `docs/`（cordis 教程、extension-cookbook、capability-seams）
