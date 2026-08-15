@@ -198,9 +198,10 @@ DSH 的 [dsh-agent-presets](https://github.com/deepseek-ai/deepseek-harness/tree
 ### router-opencode-go · opencode-go 限定变体
 
 - **定位**：opencode-go / deepseek-v4-flash provider 限定（本机自研）
-- **实测适配**（三组对照实验，同任务/同模型/reasoningEffort=max）：
-  - Flash 恒定 weak 路由（+91% 推理）
-  - WEAK_FLASH 携带深度思考锚（+50% 推理、验证矩阵翻倍）
+- **实测适配**（三组对照实验，同任务/同模型/reasoningEffort=max，完整数据见 [`docs/measurements-router-opencode-go.md`](docs/measurements-router-opencode-go.md)）：
+  - Flash 恒定 weak 路由：推理 **51k → 98k chars（+91%）**，且是唯一出现**主动迭代修复**（自修 2 个 bug）的组
+  - WEAK_FLASH 携带深度思考锚：推理 **+50%**、验证矩阵 **5 轮 → 13 项翻倍**、消除 persona 违规（官方版唯一跑被禁的 `node --version` 环境检查）
+  - sage-mem 过滤（`sessionModeUser`）：真实文本验证——sage-mem 文本分类为 spec（污染），真实用户消息为 weak；修复后两个预设端到端均 `mode=weak`
   - 移除失效的近场引导（rc.6 上 `session/event` 收不到），深度引导静态并入 persona
 - **provider 路由只记录不硬门控**（装配期 `variables` 与真实请求 provider 可能不一致，硬门控会误判）
 
@@ -255,6 +256,7 @@ presets/                   # 推理模式路由预设（复制到 ~/.dsh/.agent-
 docs/                      # 文档
   DEVELOPMENT.md           #   插件开发指南
   compare-v4-godmode.md    #   与 v4godmode 差异对比
+  measurements-router-opencode-go.md  # 三组对照实验真实测量数据
 scripts/                   # 工具脚本
   verify-shortcuts.mjs     #   会话切换快捷键回归（无头 Chrome E2E）
 dsh-architecture-map.html  # DSH 架构地图（zoom-out 交互可视化）

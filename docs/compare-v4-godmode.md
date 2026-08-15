@@ -29,7 +29,7 @@ persona 遵循度提升——结论一致后采纳。
 | **provider 硬门控** | 实测不可行（assemble 时点 `variables` 与实际请求 provider 不一致）→ **只记录不门控** | 未涉及（全局换默认，无多 provider 场景） |
 | **运维体系** | ✅ 完整：`OPERATIONS.md`（安装链：注入器自重载 → `dev_self_test` 8/8 → 装预设 → discovery → 冒烟；ESM 缓存更新规则；故障诊断矩阵；已知环境坑）+ `scripts/verify.sh` 一键健康检查 | ❌ 仅 install.sh（复制 + 提示改 settings），无自检/诊断/更新规则 |
 | **默认模型影响** | 不动；可与其他预设/模型并存，随时回退 | 全局改默认，影响所有新会话，回退需手动改回 |
-| **实测方法** | 三组对照实验（同任务、同模型、reasoningEffort=max）：官方 vs +A vs +A+B | 单任务实测（四冲程柴油机 3D 仿真：规划深度 2.9万→37.5万字，补数值验证） |
+| **实测方法** | 三组对照实验（同任务、同模型、reasoningEffort=max）：官方 vs +A vs +A+B，[完整数据](measurements-router-opencode-go.md) | 单任务实测（四冲程柴油机 3D 仿真：规划深度 2.9万→37.5万字，补数值验证） |
 
 ## 一句话总结
 
