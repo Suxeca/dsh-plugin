@@ -12,14 +12,14 @@
 
 ## 0. 本机环境事实（写文档时实测）
 
-| 项 | 值 |
+| 项　　 | 值 |
 |---|---|
 | DSH web | `http://127.0.0.1:3080`（进程 `bin.ts --profile web`，勿误杀） |
 | 注入器持久副本 | `~/Workspace/dsh-plugin/third-party/dsh-super-injector/`（lib/ 已构建） |
 | 预设安装位置 | `~/.dsh/.agent-presets/router-opencode-go/`（目录名 = preset id） |
 | DSH checkout | `~/Workspace/deepseek-harness`（**不在注入器 detectCheckout 的探测路径**，见 §4） |
 | opencode-go provider | `settings.yaml` → `llm-pi-ai.providers.opencode-go`，`apiKeyEnv: OPENCODE_GO_API_KEY` |
-| 默认模型 | `deepseek-official/deepseek-v4-flash` + `reasoningEffort: max`（**勿改**，见 §5 坑 3） |
+| 默认模型　　 | `deepseek-official/deepseek-v4-flash` + `reasoningEffort: max`（**勿改**，见 §5 坑 3） |
 
 ---
 
@@ -80,13 +80,13 @@ DSH_CHECKOUT 可探测性 → 默认模型未被污染。任一 FAIL 按输出�
 
 ### 手动清单
 
-| 检查 | 命令 | 期望 |
+| 检查　　 | 命令 | 期望 |
 |---|---|---|
 | 注入器 active | `dev_plugin_status` | `dsh-super-injector (@dsh-external/...) [active]` |
 | 注入器自愈链 | `tail ~/.dsh/super-injector/self-heal.log` | 尾部无 `heal-failed` / `reboot-failed` |
-| 注入器回归 | `dev_self_test` | PASS 8/8（需 DSH_CHECKOUT） |
+| 注入器回归　　 | `dev_self_test` | PASS 8/8（需 DSH_CHECKOUT） |
 | 预设 discovery | `agentPreset.list`（curl 见 §1 步 4） | 含 `router-opencode-go`，无 broken |
-| 会话级路由 | 会话内 `dev_router_status` | `route=opencode-go/...` + `mode=weak` |
+| 会话级路由　　 | 会话内 `dev_router_status` | `route=opencode-go/...` + `mode=weak` |
 | 实际注入证据 | 会话 history 的 `request/header` | system 含三段 WEAK_FLASH |
 
 ---
@@ -145,7 +145,7 @@ DSH_CHECKOUT 可探测性 → 默认模型未被污染。任一 FAIL 按输出�
 
 ## 6. 故障诊断矩阵
 
-| 症状 | 归因层 | 排查步骤 |
+| 症状　　 | 归因层 | 排查步骤 |
 |---|---|---|
 | 新会话无 dev_router_status | 预设 | discovery broken？`agentPreset.list` 看 broken 行；composition 引用文件是否存在 |
 | 会话报错"no platform shell" | 预设 | bootstrap 抛错：检查 `router-go-*.mjs` 语法（`node --check`）；文件是否被改名后 composition 未更新 |
@@ -176,7 +176,7 @@ rm -rf ~/.dsh/.agent-presets/router-opencode-go
 
 ## 8. 文件清单
 
-| 文件 | 作用 |
+| 文件　　 | 作用 |
 |---|---|
 | `agent.cordis.yml` | 组合文件（预设 id = 目录名；引用 `./router-go-bootstrap-v2.mjs`） |
 | `preset.yml` | 展示元数据（name/description） |

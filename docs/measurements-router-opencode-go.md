@@ -13,7 +13,7 @@
 **控制变量**：同一模型 `opencode-go/deepseek-v4-flash`、`reasoningEffort: max`（request/header
 确认生效）、同一 cwd、同一提示词；仅预设变体不同。
 
-| 指标 | v0 官方逻辑 | v1 +A（深度锚） | v3 +A+B（+Flash 恒 weak） |
+| 指标　　 | v0 官方逻辑 | v1 +A（深度锚） | v3 +A+B（+Flash 恒 weak） |
 |---|---|---|---|
 | **推理量**（reasoning chars） | 51,121 | 76,921（**+50%**） | 97,807（**+91%**） |
 | **工具步数** | 5（线性） | 4（线性） | 9（**迭代**） |
@@ -44,7 +44,7 @@
 
 **分类级验证**（真实文本，`classifyTask`）：
 
-| 输入 | 结果 |
+| 输入　　 | 结果 |
 |---|---|
 | sage-mem 记忆文本（真实抓取） | **0（spec）** —— 污染 |
 | 真实用户消息（"你好…"） | **weak** —— 正确 |
@@ -52,7 +52,7 @@
 
 **端到端验证**（修复 `sessionModeUser` 后，第二条消息 `dev_router_status`）：
 
-| 预设 | 修复前 | 修复后 |
+| 预设　　 | 修复前 | 修复后 |
 |---|---|---|
 | `router-opencode-go`（opencode-go flash + max） | mode 被带偏（实测 spec） | `mode=weak` + 三段 WEAK_FLASH ✓ |
 | `router-standard`（deepseek-official flash） | 同污染 | `mode=weak` + WEAK_FLASH ✓ |

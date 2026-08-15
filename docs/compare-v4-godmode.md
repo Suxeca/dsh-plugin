@@ -21,7 +21,7 @@ persona 遵循度提升——结论一致后采纳。
 
 ## 主要差别
 
-| 维度 | 本仓库 `router-opencode-go` | v4godmode `router-flash` |
+| 维度　　 | 本仓库 `router-opencode-go` | v4godmode `router-flash` |
 |---|---|---|
 | **provider 架构** | 预设 + **手动选模型**（默认模型保持 deepseek-official，用户约束）；`agent/request` 瀑布记录**实际发出的 provider/model**（权威值），`dev_router_status` 展示 route、`dev_mode_subagent` 使用 | 安装脚本 **install.sh 直接改全局默认**（settings `agent-default-model` = opencode-go + `agent-presets.default` = router-flash），不区分 provider |
 | **sage-mem 污染修复** | ✅ `sessionModeUser` 只分类真实用户消息（`source.kind === 'user'`），跳过 sage-mem 等 plugin 注入的首条消息——**对非 flash 场景同样生效**（router-standard 同款补丁已收录） | ❌ 仅靠"flash 恒 weak"间接免疫 flash；非 flash 走官方 `sessionMode` 仍会被首条注入记忆文本污染（实测会把"你好"会话带偏成 spec） |
