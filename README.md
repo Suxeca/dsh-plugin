@@ -154,6 +154,8 @@ bash presets/router-opencode-go/scripts/verify.sh   # 注入器活性 + 预设 d
 
 路由本身对 agent 可见：`dev_router_status` 查看当前模式/路由，`dev_router_mode` 调整（band 名 / 0-100 / 0.0-1.0），`dev_mode_subagent` 以隔离模式执行子任务。
 
+**同类项目对比**：本仓库 `router-opencode-go` 与 [SheberDavid/v4-flash-godmode-opencode-go](https://github.com/SheberDavid/v4-flash-godmode-opencode-go)（V4 Flash 神模式）同源于 yjh051108/dsh-router-standard。主要差别：provider 架构（本仓库手动选模型 + 实际路由记录 vs 对方全局改默认模型）、sage-mem 污染修复（本仓库 `sessionModeUser` 对非 flash 同样生效）、`dev_mode_subagent` 实际路由、完整运维体系。详见 [`docs/compare-v4-godmode.md`](docs/compare-v4-godmode.md)。
+
 ## 目录结构
 
 ```
