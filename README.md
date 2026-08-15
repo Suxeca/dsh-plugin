@@ -132,6 +132,14 @@ cp -r presets/router-opencode-go ~/.dsh/.agent-presets/
 
 ⚠️ 安装副本须保持唯一模块文件名（loader 按 URL 缓存 ESM 模块，原地覆盖会拿到旧缓存）；升级时先删旧目录再复制。
 
+**运维（`router-opencode-go`）**：完整运维模型见 [`presets/router-opencode-go/OPERATIONS.md`](presets/router-opencode-go/OPERATIONS.md)（安装链：注入器自重载确认 → `dev_self_test` 8/8 → 装预设 → discovery → 冒烟；ESM 缓存更新规则；故障诊断矩阵；已知环境坑）。一键健康检查：
+
+```sh
+bash presets/router-opencode-go/scripts/verify.sh   # 注入器活性 + 预设 discovery + 文件完整性 + 环境体检
+```
+
+> 注入器（dsh-super-injector）是安装/运维层的"手术台"：预设运行时**不依赖**它（走官方 agent-presets 通道），但按作者指导先确保注入器自重载可用再装预设，问题归因时也先查注入器再查预设。
+
 路由本身对 agent 可见：`dev_router_status` 查看当前模式/路由，`dev_router_mode` 调整（band 名 / 0-100 / 0.0-1.0），`dev_mode_subagent` 以隔离模式执行子任务。
 
 ## 目录结构
