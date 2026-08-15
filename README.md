@@ -17,6 +17,7 @@
 | 记忆系统 | `sage-mem`（[submodule](third-party/sage-mem)） | 跨会话记忆：自动沉淀 + 检索注入，中文优先 | GitHub 源 | ✅ 在用（本地 link 0.1.1 · 上游 0.1.3） |
 | 对话分享 | `@bill9109/dsh-conversation-share`（[submodule](third-party/dsh-conversation-share)） | 选取对话片段分享为品牌化 PNG 长图 | GitHub 源 | ✅ 在用 v0.1.1 |
 | 超级模组注入器 | `@yjh051108/dsh-super-injector`（[submodule](third-party/dsh-super-injector)） | 运行时注入任意插件包，免重启；热重载/自重载/卸载即净 | GitHub 源 | ✅ 在用 v0.3.1 |
+| 推理模式路由 | [`presets/router-standard`](presets/router-standard) + [`presets/router-opencode-go`](presets/router-opencode-go)（本仓库） | 任务感知路由：spec/react/weak 模式、首轮工具裁剪、模型自适应 | 复制到 `~/.dsh/.agent-presets/` | ✅ 在用 v2 |
 
 ## 自研插件（本仓库 `packages/`）
 
@@ -113,6 +114,26 @@ DSH 生态的 **BepInEx 式模组注入入口**：运行时把任意本地插件
 - 安装（引导一次，之后万物皆可运行时注入）：`dsh plugin --profile web add github:yjh051108/dsh-super-injector`
 - **高权限边界**：注入器以进程内代码执行能力运行任意插件包——仅应安装在受信任的 DSH 实例上。
 
+### 10. 推理模式路由 presets（`presets/`）
+
+DSH 的 [dsh-agent-presets](https://github.com/deepseek-ai/deepseek-harness/tree/main/packages/preset/agent-presets) 扫描 `~/.dsh/.agent-presets/<id>/agent.cordis.yml` 发现本地 preset，每个目录即一个可选「推理模式」预设。本仓库收录**本机在用的两个路由 preset**（会话首条用户消息 → 任务分类 → 注入对应 persona + 首轮核心工具集；首个工具调用后暴露完整工具目录，模式从持久会话事件推导，resume 不丢）：
+
+- **`router-standard`** — 通用任务感知路由：spec（plan-first）/ react（doer）/ weak（模型自路由）/ mixed 四模式，连续轴映射三稳定行为区（实测：spec [0, 0.15]、过渡带 [0.2, 0.45] 需显式 opt-in、react [0.5, 1.0]）。派生自 [yjh051108/dsh-router-standard](https://github.com/yjh051108/dsh-router-standard)（MIT，含论文与 P1–P23 实验数据）；本地 v2 补丁：`sessionModeUser` 过滤 plugin/系统注入消息（sage-mem 记忆注入文本会把「你好」会话污染成 spec），只分类真实用户消息
+- **`router-opencode-go`** — provider 限定变体（opencode-go / deepseek-v4-flash），实测三项适配：flash 模型恒定 weak 路由（+91% 推理）、WEAK_FLASH 携带深度思考锚（+50%）、移除失效的近场引导；provider 路由只记录不硬门控（装配期 `variables` 与真实请求可能不一致）
+
+安装（两个 preset 各自一个目录）：
+
+```sh
+mkdir -p ~/.dsh/.agent-presets
+cp -r presets/router-standard ~/.dsh/.agent-presets/
+cp -r presets/router-opencode-go ~/.dsh/.agent-presets/
+# 重启 DSH 后新建会话，选择 Router Standard / Router Opencode-Go
+```
+
+⚠️ 安装副本须保持唯一模块文件名（loader 按 URL 缓存 ESM 模块，原地覆盖会拿到旧缓存）；升级时先删旧目录再复制。
+
+路由本身对 agent 可见：`dev_router_status` 查看当前模式/路由，`dev_router_mode` 调整（band 名 / 0-100 / 0.0-1.0），`dev_mode_subagent` 以隔离模式执行子任务。
+
 ## 目录结构
 
 ```
@@ -126,6 +147,9 @@ third-party/               # 收录的在用插件（公开上游用 submodule�
   dsh-conversation-share/
   dsh-super-injector/
   dsh-better-sidebar/      # 本机修订快照（gitignored；官方上游见插件说明）
+presets/                   # 推理模式路由 presets（复制到 ~/.dsh/.agent-presets/ 安装）
+  router-standard/         #   通用路由（上游 yjh051108 派生 + v2 补丁；含 MIT LICENSE）
+  router-opencode-go/      #   opencode-go provider 限定变体（本机自研）
 docs/DEVELOPMENT.md        # 插件开发指南（新建包、构建、安装、扩展点速查）
 dsh-architecture-map.html  # DSH 架构地图（zoom-out 交互可视化）
 dsh-venn.html              # Profile · Bundle · Patch 维恩图
