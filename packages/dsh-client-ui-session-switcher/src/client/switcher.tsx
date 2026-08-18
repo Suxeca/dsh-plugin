@@ -59,7 +59,8 @@ function Kbd({ children }: { readonly children: string }): JSX.Element {
  * palette.
  */
 export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.Element | null {
-  const open = useSyncExternalStore(openStore.subscribe, openStore.getSnapshot)
+  const palette = useSyncExternalStore(openStore.subscribe, openStore.getSnapshot)
+  const open = palette.open
   const sessionsSnap = useSyncExternalStore(ctx.sessions.list.subscribe, ctx.sessions.list.getSnapshot)
   const workspacesSnap = useSyncExternalStore(ctx.workspaces.list.subscribe, ctx.workspaces.list.getSnapshot)
   const keymap = useSyncExternalStore(keymapStore.subscribe, keymapStore.getSnapshot)
@@ -215,6 +216,16 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     ctx.sessions.open(sessionId)
     openStore.close()
   }
+  /** Space-preview the selected conversation: switch to it WITHOUT leaving
+   *  the palette interaction — Esc restores the previous session and returns
+   *  to the card; Enter confirms the switch. Archived sessions work the same
+   *  (sessions.open addresses them; only the sidebar hides them). */
+  const startPreview = (): void => {
+    if (selected === null) return
+    const fromId = currentId
+    openStore.enterPreview(selected.session.id, fromId)
+    ctx.sessions.open(selected.session.id)
+  }
   const newConversation = (): void => {
     try {
       ctx.workspaces.startSession(currentWorkspaceId)
@@ -295,8 +306,10 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
   }
 
   if (!open) {
-    // Closed: only the one-time readiness toast (dismissable, persisted).
-    if (!showReadyToast) return null
+    // Closed — or mid preview: hide EVERYTHING (the one-time readiness toast
+    // would otherwise float over the conversation being previewed). The
+    // Esc/Enter key handling for preview lives in the global keydown handler.
+    if (palette.preview || !showReadyToast) return null
     return (
       <div className={`${css.root} ${css.wrapper}`} data-skin={skinName}>
         <div className={css.toast} onClick={dismissToast}>
@@ -351,6 +364,11 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     } else if (e.key === 'Enter') {
       e.preventDefault()
       if (selected !== null) openSession(selected.session.id)
+    } else if (!searching && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === ' ') {
+      // Space previews the selected conversation (suppressed while searching
+      // so the filter box can type spaces).
+      e.preventDefault()
+      startPreview()
     } else if (e.key === 'Escape') {
       e.preventDefault()
       if (searching) exitSearch()
@@ -519,6 +537,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
   ) : (
     <div className={css.footer}>
       <span className={css.footerAction}><Kbd>↑↓</Kbd>选择<Kbd>Enter</Kbd>打开</span>
+      <span className={css.footerAction}><Kbd>空格</Kbd>预览</span>
       <span className={css.footerAction}><Kbd>S</Kbd>搜索</span>
       <span className={css.footerAction}><Kbd>N</Kbd>新建</span>
       <span className={css.footerAction}><Kbd>A</Kbd>归档</span>

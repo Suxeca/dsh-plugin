@@ -109,6 +109,8 @@ export interface BetterSidebarPort {
   toggleBottomPanel(): void
   setFullscreen(fullscreen: boolean): void
   toggleFullscreen(): void
+  /** Toggle the bottom panel; opening focuses a UI terminal there (mint if absent). */
+  toggleBottomTerminal(): void
   getSnapshot(): { state?: { fullscreen?: boolean } | undefined }
 }
 

@@ -85,7 +85,40 @@ export function apply(ctx: ClientContext): void {
     const layout = ctx.get('layout') as LayoutPort | undefined
     const betterSidebar = ctx.get('betterSidebar') as BetterSidebarPort | undefined
 
-    const open = openStore.getSnapshot()
+    const paletteState = openStore.getSnapshot()
+    const open = paletteState.open
+    const previewing = paletteState.preview
+
+    // PREVIEW MODE: the card is hidden and the selected conversation is on
+    // screen. Only the three exit gestures are handled here — everything
+    // else (scrolling, hovering) falls through to the page so the preview
+    // behaves like a lightweight dialog:
+    //   Esc  -> restore the pre-preview session, return to the card
+    //   Enter -> keep the previewed session, close the interaction
+    //   Ctrl+K / Alt+K -> like Esc (restore + close the whole interaction)
+    if (previewing) {
+      const cancelPreview = (): void => {
+        const from = openStore.getSnapshot().previewFromId
+        if (from !== undefined) sessions.open(from)
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        cancelPreview()
+        openStore.exitPreview()
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        openStore.confirmPreview()
+      } else if (matchesBinding(bindings.toggle, e)) {
+        e.preventDefault()
+        cancelPreview()
+        openStore.close()
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        cancelPreview()
+        openStore.close()
+      }
+      return
+    }
 
     // Customizable toggle chord (default Ctrl+K / Cmd+K).
     if (matchesBinding(bindings.toggle, e)) {
@@ -131,8 +164,18 @@ export function apply(ctx: ClientContext): void {
       }
       if (matchesBinding(bindings.toggleBottom, e)) {
         e.preventDefault()
-        if (betterSidebar !== undefined) betterSidebar.toggleBottomPanel()
-        else console.warn('[session-switcher] workbench chord: better-sidebar service missing')
+        if (betterSidebar !== undefined) {
+          // Toggle the bottom panel, focusing a terminal on open instead of
+          // merely calling up the window; a better-sidebar without the newer
+          // toggleBottomTerminal degrades to a plain panel toggle.
+          if (typeof (betterSidebar as { toggleBottomTerminal?: unknown }).toggleBottomTerminal === 'function') {
+            betterSidebar.toggleBottomTerminal()
+          } else {
+            betterSidebar.toggleBottomPanel()
+          }
+        } else {
+          console.warn('[session-switcher] workbench chord: better-sidebar service missing')
+        }
         return
       }
       if (matchesBinding(bindings.fullscreenLeft, e)) {

@@ -42,7 +42,7 @@ export const ACTION_LABELS: Record<ActionId, string> = {
   prev: '上一个对话',
   toggleLeftSidebar: '折叠/展开左侧栏',
   toggleRightSidebar: '折叠/展开右侧栏（工作台）',
-  toggleBottom: '折叠/展开底栏',
+  toggleBottom: '折叠底栏 / 展开并聚焦终端',
   fullscreenLeft: '左侧栏全屏',
   fullscreenRight: '右侧栏全屏',
 }
