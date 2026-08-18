@@ -29,7 +29,7 @@ index fe8474f..fc6d3a8 100644
  
  /** openTab 的 seed（v0.12.0 起导出命名类型） */
 diff --git a/src/client/ExplorerView.tsx b/src/client/ExplorerView.tsx
-index d0eb593..46916e8 100644
+index d0eb593..bf268c0 100644
 --- a/src/client/ExplorerView.tsx
 +++ b/src/client/ExplorerView.tsx
 @@ -36,6 +36,21 @@ function baseName(path: string): string {
@@ -54,7 +54,7 @@ index d0eb593..46916e8 100644
  export function ExplorerView(props: {
    sessionId: string
    cwd: string | undefined
-@@ -53,6 +68,50 @@ export function ExplorerView(props: {
+@@ -53,6 +68,60 @@ export function ExplorerView(props: {
    const [copiedPath, setCopiedPath] = useState<string | null>(null)
    /** Open context menu: the row path (and whether it is a directory) plus the cursor position. */
    const [rowMenu, setRowMenu] = useState<{ path: string; isDir: boolean; x: number; y: number } | null>(null)
@@ -93,6 +93,16 @@ index d0eb593..46916e8 100644
 +    setAddDraft('')
 +    setAddError(null)
 +  }
++  /** Open the host's system folder dialog; the chosen path lands as an
++   *  external root directly (null = user cancelled → no-op). */
++  const pickAndAdd = async (): Promise<void> => {
++    try {
++      const result = await api.pickDirectory()
++      if (result.path !== null) addExtraRoot(result.path)
++    } catch {
++      setAddError(t('chooseDirectoryFailed'))
++    }
++  }
 +  const removeExtraRoot = (path: string): void => {
 +    persistExtraRoots(extraRoots.filter(candidate => candidate !== path))
 +    setExtraOpen(prev => {
@@ -105,7 +115,7 @@ index d0eb593..46916e8 100644
  
    const storeLevel = useCallback((path: string, level: LevelData) => {
      dataRef.current = { ...dataRef.current, [path]: level }
-@@ -71,12 +130,15 @@ export function ExplorerView(props: {
+@@ -71,12 +140,15 @@ export function ExplorerView(props: {
  
    useEffect(() => {
      // Load the visible set; already-loaded levels (kept in the cache) are
@@ -123,7 +133,7 @@ index d0eb593..46916e8 100644
  
    /** Copy `text`; on success flip the row's copied label for a moment. */
    const copyPath = useCallback((text: string, path: string): void => {
-@@ -198,6 +260,18 @@ export function ExplorerView(props: {
+@@ -198,6 +270,18 @@ export function ExplorerView(props: {
      <div className={css.explorer}>
        <div className={css.explorerHeader}>
          <span className={css.explorerRoot} title={root}>{root === undefined ? t('noSession') : baseName(root)}</span>
@@ -142,7 +152,7 @@ index d0eb593..46916e8 100644
          <button
            type="button"
            className={css.iconButton}
-@@ -213,6 +287,42 @@ export function ExplorerView(props: {
+@@ -213,6 +297,45 @@ export function ExplorerView(props: {
          </button>
        </div>
        <div className={css.explorerBody}>
@@ -171,6 +181,9 @@ index d0eb593..46916e8 100644
 +              <button type="button" className={css.explorerAddGo} onClick={() => addExtraRoot(addDraft)}>
 +                {t('addExternalRoot')}
 +              </button>
++              <button type="button" className={css.explorerAddGo} onClick={() => void pickAndAdd()}>
++                {t('chooseDirectory')}
++              </button>
 +              <button type="button" className={css.explorerAddGo} onClick={() => {
 +                setAdding(false)
 +                setAddDraft('')
@@ -185,7 +198,7 @@ index d0eb593..46916e8 100644
          {root === undefined ? (
            <div className={css.explorerEmpty}>{t('noSession')}</div>
          ) : (
-@@ -242,6 +352,63 @@ export function ExplorerView(props: {
+@@ -242,6 +365,63 @@ export function ExplorerView(props: {
                  )}
              </div>
              {data[root] !== undefined && renderLevel(root, 1)}
@@ -326,6 +339,20 @@ index d4ec208..473d864 100644
        connectRef.current = null
      }
    }, [scope.sessionId, scope.cwd, tabId, store])
+diff --git a/src/client/api.ts b/src/client/api.ts
+index 619b60a..7aa2fa8 100644
+--- a/src/client/api.ts
++++ b/src/client/api.ts
+@@ -116,6 +116,9 @@ export const api = {
+     call<{ sessionId: string; cwd: string; root: string; parent: string | null }>('session.cwd', scopePayload(scope, {}), signal),
+   fsTree: (scope: SessionScope, path: string, signal?: AbortSignal) =>
+     call<{ path: string; entries: FsEntry[]; truncated: boolean }>('fs.tree', scopePayload(scope, { path }), signal),
++  /** Open the host's system folder dialog; null = user cancelled. */
++  pickDirectory: (signal?: AbortSignal) =>
++    call<{ path: string | null }>('pick.directory', {}, signal),
+   fsRead: (scope: SessionScope, path: string, signal?: AbortSignal) =>
+     call<FsTextResult | FsBinaryResult>('fs.read', scopePayload(scope, { path }), signal),
+   fsWrite: (scope: SessionScope, path: string, content: string) =>
 diff --git a/src/client/builtins/tabs.tsx b/src/client/builtins/tabs.tsx
 index 18bebd8..0b1f2de 100644
 --- a/src/client/builtins/tabs.tsx
@@ -348,10 +375,10 @@ index 18bebd8..0b1f2de 100644
      {
        id: 'browser',
 diff --git a/src/client/locales.ts b/src/client/locales.ts
-index 448171a..5291821 100644
+index 448171a..9299937 100644
 --- a/src/client/locales.ts
 +++ b/src/client/locales.ts
-@@ -101,6 +101,11 @@ export const zh = {
+@@ -101,6 +101,13 @@ export const zh = {
    openEditor: '打开编辑器',
    gitDetail: '查看变更详情',
    referenceFile: '@文件',
@@ -360,10 +387,12 @@ index 448171a..5291821 100644
 +  externalRoots: '外部目录',
 +  removeExternalRoot: '移除',
 +  invalidPath: '无效绝对路径',
++  chooseDirectory: '选择目录',
++  chooseDirectoryFailed: '无法打开系统目录选择器',
    addToConversation: '添加到对话',
    copyRelative: '复制相对地址',
    copyAbsolute: '复制绝对地址',
-@@ -313,6 +318,11 @@ export const en: Record<keyof typeof zh, string> = {
+@@ -313,6 +320,13 @@ export const en: Record<keyof typeof zh, string> = {
    openEditor: 'Open editor',
    gitDetail: 'View change details',
    referenceFile: '@file',
@@ -372,6 +401,8 @@ index 448171a..5291821 100644
 +  externalRoots: 'External folders',
 +  removeExternalRoot: 'Remove',
 +  invalidPath: 'Invalid absolute path',
++  chooseDirectory: 'Choose folder…',
++  chooseDirectoryFailed: 'Could not open the system folder chooser',
    addToConversation: 'Add to conversation',
    copyRelative: 'Copy relative path',
    copyAbsolute: 'Copy absolute path',
@@ -713,3 +744,26 @@ index 8656ddc..c0e6a70 100644
        } catch {
          // Storage full or unavailable: layout memory is best-effort.
        }
+diff --git a/src/index.ts b/src/index.ts
+index f9e0622..f087e91 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -29,6 +29,7 @@ import {
+   type SidebarPrefs,
+ } from './config.ts'
+ import { isWithin, parentOf, requireAbsolute, listDirectory, rootLabel } from './fs-tree.ts'
++import { pickDirectory } from './pick-directory.ts'
+ import { decodeHtmlUrl } from './html-route.ts'
+ import { extractFrameAncestors } from './browser-probe.ts'
+ import { isTrustedApiRequest, isLoopbackHostname } from './trust-fence.ts'
+@@ -207,6 +208,10 @@ function buildApi(
+       const target = record.path === undefined ? cwd : requireAbsolute(requireString(payload, 'path'))
+       return listDirectory(target, resolved.listLimit)
+     },
++    'pick.directory': async () => {
++      // System folder dialog on the host display; null = user cancelled.
++      return { path: await pickDirectory() }
++    },
+     'fs.read': async (payload) => {
+       const { cwd } = cwdOf(payload)
+       // Relative paths are git-derived (status/diff report repo-root-relative
