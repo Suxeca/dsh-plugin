@@ -1,0 +1,715 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index fe8474f..fc6d3a8 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -462,7 +462,8 @@ interface BetterSidebarService {
+   readonly version: string
+   /** 单调能力清单（只增不删）：'badge' | 'tabLifecycle' | 'updateTab' |
+    *  'openFile' | 'targetedOpen' | 'stateSubscription' | 'tabMeta' |
+-   *  'pluginSettings'——消费插件用 `features.includes('xxx')` 按能力 gate。 */
++   *  'pluginSettings' | 'panelControl'——消费插件用
++   *  `features.includes('xxx')` 按能力 gate。 */
+   readonly features: readonly string[]
+   /** 当前快照：激活 sessionId + 其状态（面板几何/打开的 tabs/展开集）+ prefs。
+    *  session 未激活时 state/sessionId 为 undefined。 */
+@@ -477,6 +478,15 @@ interface BetterSidebarService {
+   /** 在 scope.sessionId 的侧边栏编辑器打开一个文件（title 缺省为文件名；
+    *  id 按路径派生，与内置 open-path 拦截一致，不同文件可并排打开） */
+   openFile(scope: SessionScope, path: string, title?: string): void
++  // ── panelControl（v0.12.0+ 能力 'panelControl'）───────────────────────
++  /** 折叠/展开右侧工作台面板（无激活 session 时 no-op，同其他会话状态写） */
++  togglePanel(): void
++  /** 折叠/展开底部面板（与右侧面板独立） */
++  toggleBottomPanel(): void
++  /** 进入/退出右侧面板全屏（进入时强制展开面板；全屏不持久化，刷新恢复常规几何） */
++  setFullscreen(fullscreen: boolean): void
++  /** 切换右侧面板全屏 */
++  toggleFullscreen(): void
+ }
+ 
+ /** openTab 的 seed（v0.12.0 起导出命名类型） */
+diff --git a/src/client/ExplorerView.tsx b/src/client/ExplorerView.tsx
+index d0eb593..46916e8 100644
+--- a/src/client/ExplorerView.tsx
++++ b/src/client/ExplorerView.tsx
+@@ -36,6 +36,21 @@ function baseName(path: string): string {
+ /** How long the row's "copied" label stays after a successful write. */
+ const COPIED_MS = 1200
+ 
++/** localStorage key backing the external extra roots (JSON string[]). */
++const EXTRA_ROOTS_KEY = 'dsh-better-sidebar:explorer-extra-roots'
++
++/** Read persisted extra roots, silently falling back to none. */
++function loadExtraRoots(): string[] {
++  try {
++    const raw = localStorage.getItem(EXTRA_ROOTS_KEY)
++    if (raw === null) return []
++    const parsed: unknown = JSON.parse(raw)
++    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
++  } catch {
++    return []
++  }
++}
++
+ export function ExplorerView(props: {
+   sessionId: string
+   cwd: string | undefined
+@@ -53,6 +68,50 @@ export function ExplorerView(props: {
+   const [copiedPath, setCopiedPath] = useState<string | null>(null)
+   /** Open context menu: the row path (and whether it is a directory) plus the cursor position. */
+   const [rowMenu, setRowMenu] = useState<{ path: string; isDir: boolean; x: number; y: number } | null>(null)
++  /** Extra absolute-path roots (outside the session cwd), persisted across
++   *  reloads — the escape hatch for browsing/referencing files outside the
++   *  current workspace. The session tree root stays the cwd; these mount as
++   *  additional top-level roots below it. */
++  const [extraRoots, setExtraRoots] = useState<string[]>(loadExtraRoots)
++  /** Per-extra-root expanded state (kept out of the session layout state —
++   *  external paths do not belong in the conversation's persisted layout). */
++  const [extraOpen, setExtraOpen] = useState<Record<string, boolean>>({})
++  /** The "add external root" input row visibility + draft + error. */
++  const [adding, setAdding] = useState(false)
++  const [addDraft, setAddDraft] = useState('')
++  const [addError, setAddError] = useState<string | null>(null)
++
++  const persistExtraRoots = (roots: string[]): void => {
++    setExtraRoots(roots)
++    try {
++      localStorage.setItem(EXTRA_ROOTS_KEY, JSON.stringify(roots))
++    } catch {
++      /* storage unavailable */
++    }
++  }
++  const addExtraRoot = (raw: string): void => {
++    const path = raw.trim()
++    if (!/^\//.test(path) && !/^[A-Za-z]:[\\/]/.test(path)) {
++      setAddError(t('invalidPath'))
++      return
++    }
++    if (!extraRoots.includes(path)) {
++      persistExtraRoots([...extraRoots, path])
++      setExtraOpen(prev => ({ ...prev, [path]: true }))
++    }
++    setAdding(false)
++    setAddDraft('')
++    setAddError(null)
++  }
++  const removeExtraRoot = (path: string): void => {
++    persistExtraRoots(extraRoots.filter(candidate => candidate !== path))
++    setExtraOpen(prev => {
++      if (prev[path] === undefined) return prev
++      const next = { ...prev }
++      delete next[path]
++      return next
++    })
++  }
+ 
+   const storeLevel = useCallback((path: string, level: LevelData) => {
+     dataRef.current = { ...dataRef.current, [path]: level }
+@@ -71,12 +130,15 @@ export function ExplorerView(props: {
+ 
+   useEffect(() => {
+     // Load the visible set; already-loaded levels (kept in the cache) are
+-    // not refetched. Only the refresh button wipes the cache.
++    // not refetched. Only the refresh button wipes the cache. Extra roots
++    // load alongside the session root (their first level only; deeper
++    // expansion reuses the shared `expanded` set + loadDir on demand).
+     const root = cwd
+     if (root === undefined) return
+     loadDir(root)
+     for (const dir of expanded) loadDir(dir)
+-  }, [cwd, expanded, refreshTick, loadDir])
++    for (const extra of extraRoots) loadDir(extra)
++  }, [cwd, expanded, refreshTick, loadDir, extraRoots])
+ 
+   /** Copy `text`; on success flip the row's copied label for a moment. */
+   const copyPath = useCallback((text: string, path: string): void => {
+@@ -198,6 +260,18 @@ export function ExplorerView(props: {
+     <div className={css.explorer}>
+       <div className={css.explorerHeader}>
+         <span className={css.explorerRoot} title={root}>{root === undefined ? t('noSession') : baseName(root)}</span>
++        <button
++          type="button"
++          className={css.iconButton}
++          aria-label={t('addExternalRoot')}
++          title={t('addExternalRoot')}
++          onClick={() => {
++            setAdding(value => !value)
++            setAddError(null)
++          }}
++        >
++          {adding ? <span className={css.explorerAddToggle}>×</span> : <span className={css.explorerAddToggle}>＋</span>}
++        </button>
+         <button
+           type="button"
+           className={css.iconButton}
+@@ -213,6 +287,42 @@ export function ExplorerView(props: {
+         </button>
+       </div>
+       <div className={css.explorerBody}>
++        {adding && (
++          <div className={css.explorerAddBar}>
++            <input
++              autoFocus
++              className={css.explorerInput}
++              value={addDraft}
++              placeholder={t('externalRootPlaceholder')}
++              onChange={(event) => { setAddDraft(event.target.value) }}
++              onKeyDown={(event) => {
++                event.stopPropagation()
++                if (event.key === 'Enter') {
++                  event.preventDefault()
++                  addExtraRoot(addDraft)
++                } else if (event.key === 'Escape') {
++                  setAdding(false)
++                  setAddDraft('')
++                  setAddError(null)
++                }
++              }}
++            />
++            {addError !== null && <div className={clsx(css.explorerError, css.explorerAddError)}>{addError}</div>}
++            <div className={css.explorerAddActions}>
++              <button type="button" className={css.explorerAddGo} onClick={() => addExtraRoot(addDraft)}>
++                {t('addExternalRoot')}
++              </button>
++              <button type="button" className={css.explorerAddGo} onClick={() => {
++                setAdding(false)
++                setAddDraft('')
++                setAddError(null)
++              }}
++              >
++                {t('cancel')}
++              </button>
++            </div>
++          </div>
++        )}
+         {root === undefined ? (
+           <div className={css.explorerEmpty}>{t('noSession')}</div>
+         ) : (
+@@ -242,6 +352,63 @@ export function ExplorerView(props: {
+                 )}
+             </div>
+             {data[root] !== undefined && renderLevel(root, 1)}
++            {extraRoots.length > 0 && (
++              <div className={css.explorerExtraSection}>{t('externalRoots')}</div>
++            )}
++            {extraRoots.map(extra => {
++              const isOpen = extraOpen[extra] === true
++              return (
++                <div key={extra}>
++                  <div
++                    role="button"
++                    tabIndex={0}
++                    className={clsx(css.explorerRow, css.explorerDir)}
++                    style={{ paddingLeft: 6 }}
++                    title={extra}
++                    onClick={() => { setExtraOpen(prev => ({ ...prev, [extra]: !isOpen })) }}
++                    onKeyDown={(event) => {
++                      if (event.key === 'Enter' || event.key === ' ') {
++                        event.preventDefault()
++                        setExtraOpen(prev => ({ ...prev, [extra]: !isOpen }))
++                      }
++                    }}
++                    onContextMenu={(event) => { openRowMenu(event, extra, true) }}
++                  >
++                    {isOpen ? <IconFolderOpen16 size={14} /> : <IconFolderClose16 size={14} />}
++                    <span className={css.explorerName}>{baseName(extra)}</span>
++                    {copiedPath === extra
++                      ? <span className={css.explorerCopied}>{t('copied')}</span>
++                      : (
++                        <button
++                          type="button"
++                          className={css.explorerRef}
++                          aria-label={t('referenceFile')}
++                          title={t('referenceFile')}
++                          onClick={(event) => {
++                            event.stopPropagation()
++                            onReferenceFile(extra)
++                          }}
++                        >
++                          {t('referenceFile')}
++                        </button>
++                      )}
++                    <button
++                      type="button"
++                      className={css.explorerRemove}
++                      aria-label={t('removeExternalRoot')}
++                      title={t('removeExternalRoot')}
++                      onClick={(event) => {
++                        event.stopPropagation()
++                        removeExtraRoot(extra)
++                      }}
++                    >
++                      ×
++                    </button>
++                  </div>
++                  {isOpen && data[extra] !== undefined && renderLevel(extra, 1)}
++                </div>
++              )
++            })}
+           </>
+         )}
+       </div>
+diff --git a/src/client/Sidebar.tsx b/src/client/Sidebar.tsx
+index 377082b..5a7d95b 100644
+--- a/src/client/Sidebar.tsx
++++ b/src/client/Sidebar.tsx
+@@ -749,11 +749,11 @@ export function Sidebar(props: { ctx: Context; store: SidebarStore }) {
+       */}
+       <div
+         ref={panelRef}
+-        className={clsx(css.panel, !state.panelOpen && css.panelHidden)}
+-        style={{ width: narrow ? '100vw' : Math.min(state.width, window.innerWidth) }}
++        className={clsx(css.panel, !state.panelOpen && css.panelHidden, state.fullscreen && css.panelFullscreen)}
++        style={{ width: state.fullscreen ? '100vw' : narrow ? '100vw' : Math.min(state.width, window.innerWidth) }}
+         data-dragging={anyDragging || undefined}
+       >
+-          {!narrow && (
++          {!narrow && !state.fullscreen && (
+             <div
+               className={clsx(css.panelResize, draggingWidth && css.panelResizeActive)}
+               onPointerDown={(event) => {
+diff --git a/src/client/TerminalView.tsx b/src/client/TerminalView.tsx
+index d4ec208..473d864 100644
+--- a/src/client/TerminalView.tsx
++++ b/src/client/TerminalView.tsx
+@@ -73,14 +73,32 @@ function xtermTheme(): ITheme {
+   }
+ }
+ 
+-export function TerminalView(props: { scope: SessionScope; tabId: string; store: SidebarStore }) {
+-  const { scope, tabId, store } = props
++export function TerminalView(props: { scope: SessionScope; tabId: string; store: SidebarStore; visible?: boolean }) {
++  const { scope, tabId, store, visible } = props
+   const hostRef = useRef<HTMLDivElement>(null)
++  const termRef = useRef<Terminal | null>(null)
++  // Latest visibility for the async open path (the openWhenSized callback
++  // runs later than this render; a ref survives the delay).
++  const visibleRef = useRef(visible === true)
++  visibleRef.current = visible === true
+   const [connected, setConnected] = useState(false)
+   const [fatal, setFatal] = useState<string | null>(null)
+   const [lastUrl, setLastUrl] = useState<string | null>(null)
+   const connectRef = useRef<(() => void) | null>(null)
+ 
++  // Focus the xterm surface when this terminal becomes visible (the bottom
++  // panel opened / the tab activated), so a keyboard "focus the terminal"
++  // gesture lands input in the shell — not just surfaces the window. A
++  // frame delay lets the panel slide/layout settle before focusing.
++  useEffect(() => {
++    if (!visible) return
++    const raf = requestAnimationFrame(() => {
++      const term = termRef.current
++      if (term !== null) term.focus()
++    })
++    return () => cancelAnimationFrame(raf)
++  }, [visible])
++
+   useEffect(() => {
+     const host = hostRef.current
+     if (host === null) return
+@@ -220,8 +238,10 @@ export function TerminalView(props: { scope: SessionScope; tabId: string; store:
+     const cancelOpen = openWhenSized(host, () => {
+       try {
+         term.open(host)
++        termRef.current = term
+         fit.fit()
+         sendResize()
++        if (visibleRef.current) term.focus()
+       } catch (error) {
+         console.error('[dsh-better-sidebar] xterm open failed:', error)
+       }
+@@ -251,6 +271,7 @@ export function TerminalView(props: { scope: SessionScope; tabId: string; store:
+       }
+       socket?.close()
+       term.dispose()
++      termRef.current = null
+       connectRef.current = null
+     }
+   }, [scope.sessionId, scope.cwd, tabId, store])
+diff --git a/src/client/builtins/tabs.tsx b/src/client/builtins/tabs.tsx
+index 18bebd8..0b1f2de 100644
+--- a/src/client/builtins/tabs.tsx
++++ b/src/client/builtins/tabs.tsx
+@@ -47,6 +47,7 @@ interface TerminalViewProps {
+   scope: SessionScope
+   tabId: string
+   store: SidebarStore
++  visible?: boolean
+ }
+ 
+ /** How many UI-owned terminals may be open at once (agent-owned ones are uncapped). */
+@@ -200,7 +201,7 @@ export function builtinTabs(ctx: Context): readonly TabDescriptor[] {
+           patch: { nextTerminal: state.nextTerminal + 1 },
+         }
+       },
+-      component: ({ tab, scope, store }) => <LazyTerminal scope={scope} store={store} tabId={tab.id} />,
++      component: ({ tab, scope, store, visible }) => <LazyTerminal scope={scope} store={store} tabId={tab.id} visible={visible} />,
+     },
+     {
+       id: 'browser',
+diff --git a/src/client/locales.ts b/src/client/locales.ts
+index 448171a..5291821 100644
+--- a/src/client/locales.ts
++++ b/src/client/locales.ts
+@@ -101,6 +101,11 @@ export const zh = {
+   openEditor: '打开编辑器',
+   gitDetail: '查看变更详情',
+   referenceFile: '@文件',
++  addExternalRoot: '添加外部目录',
++  externalRootPlaceholder: '输入外部目录绝对路径，Enter 添加',
++  externalRoots: '外部目录',
++  removeExternalRoot: '移除',
++  invalidPath: '无效绝对路径',
+   addToConversation: '添加到对话',
+   copyRelative: '复制相对地址',
+   copyAbsolute: '复制绝对地址',
+@@ -313,6 +318,11 @@ export const en: Record<keyof typeof zh, string> = {
+   openEditor: 'Open editor',
+   gitDetail: 'View change details',
+   referenceFile: '@file',
++  addExternalRoot: 'Add external folder',
++  externalRootPlaceholder: 'Absolute path of an external folder, Enter to add',
++  externalRoots: 'External folders',
++  removeExternalRoot: 'Remove',
++  invalidPath: 'Invalid absolute path',
+   addToConversation: 'Add to conversation',
+   copyRelative: 'Copy relative path',
+   copyAbsolute: 'Copy absolute path',
+diff --git a/src/client/service.ts b/src/client/service.ts
+index 8ec2a43..635b844 100644
+--- a/src/client/service.ts
++++ b/src/client/service.ts
+@@ -22,8 +22,11 @@
+ import type { ReactNode } from 'react'
+ import type { Context } from '../context-types.ts'
+ import {
+-  activateTab as activateTabReducer, allLeaves, closeTab as closeTabReducer, leafWithTab,
+-  openTabInActivePane, patchTab, tabOpenIn, togglePanel, treeOf,
++  activateTab as activateTabReducer, allLeaves, closeTab as closeTabReducer, isAgentTabId,
++  leafWithTab, openTabInActivePane, openTabInBottomTree, patchTab,
++  setFullscreen as setFullscreenState, tabOpenIn,
++  toggleBottomPanel as toggleBottomPanelState, toggleFullscreen as toggleFullscreenState,
++  togglePanel, treeOf,
+   type SidebarSnapshot, type SidebarState, type SidebarStore, type SidebarTab,
+ } from './state.ts'
+ import { isNarrowWidth } from './breakpoints.ts'
+@@ -335,8 +338,8 @@ export interface BetterSidebarService {
+   /**
+    * Monotonic capability list (v0.12.0+): 'badge' | 'tabLifecycle' |
+    * 'updateTab' | 'openFile' | 'targetedOpen' | 'stateSubscription' |
+-   * 'tabMeta' | 'pluginSettings'. Features are never removed — consumers
+-   * gate new API usage on membership.
++   * 'tabMeta' | 'pluginSettings' | 'panelControl'. Features are never
++   * removed — consumers gate new API usage on membership.
+    */
+   readonly features: readonly string[]
+   /**
+@@ -357,6 +360,20 @@ export interface BetterSidebarService {
+   activateTab(tabId: string, scope?: SessionScope): void
+   /** Open a file in the sidebar editor of `scope`'s session (title defaults to the file name). */
+   openFile(scope: SessionScope, path: string, title?: string): void
++  /** Toggle the right workbench panel (open ⟷ closed). */
++  togglePanel(): void
++  /** Toggle the bottom panel (open ⟷ closed; independent of the right panel). */
++  toggleBottomPanel(): void
++  /** Enter or leave right-panel fullscreen (entering forces the panel open). */
++  setFullscreen(fullscreen: boolean): void
++  /** Toggle right-panel fullscreen. */
++  toggleFullscreen(): void
++  /** Toggle the bottom panel and focus a terminal there: opening expands the
++   *  bottom panel and activates (or mints) a UI terminal, which takes
++   *  keyboard focus on becoming visible; pressing again collapses the panel
++   *  (plain toggle) — the keyboard shortcut keeps the VSCode-style
++   *  open/close semantics while making "open" land focus in the shell. */
++  toggleBottomTerminal(): void
+ }
+ 
+ /** Extract the lowercase extension without leading dot from a path. */
+@@ -390,6 +407,7 @@ export const SIDEBAR_SERVICE_VERSION = '0.12.0'
+  * - 'stateSubscription': getSnapshot/subscribeState
+  * - 'tabMeta': SidebarTab.meta (seeds, createTab, updateTab, persistence)
+  * - 'pluginSettings': SidebarSettingsDeclaration.pluginToggles/render
++ * - 'panelControl': togglePanel/toggleBottomPanel/setFullscreen/toggleFullscreen
+  */
+ export const SIDEBAR_FEATURES = [
+   'badge',
+@@ -400,6 +418,7 @@ export const SIDEBAR_FEATURES = [
+   'stateSubscription',
+   'tabMeta',
+   'pluginSettings',
++  'panelControl',
+ ] as const
+ 
+ /** Run one plugin callback; a throw is logged and never breaks the caller. */
+@@ -689,6 +708,30 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
+     openTab({ type: 'editor', title: title ?? baseNameOf(path), path, id: `editor:${path}` }, scope)
+   }
+ 
++  /** Toggle the workbench terminal in the BOTTOM panel (see the interface
++   *  doc): closing when open, else opening and activating/minting a terminal
++   *  there. Resolves through the store — any existing non-agent terminal tab
++   *  in the bottom tree is activated, else one is minted via the terminal
++   *  descriptor's createTab and rooted in the bottom tree's first pane. */
++  const toggleBottomTerminal = (): void => {
++    store.reduce((state) => {
++      if (state.bottomOpen) return toggleBottomPanelState(state)
++      for (const leaf of allLeaves(state.bottomSplits)) {
++        const tab = leaf.tabs.find(candidate => candidate.type === 'terminal' && !isAgentTabId(candidate.id))
++        if (tab !== undefined) {
++          return activateTabReducer({ ...state, bottomOpen: true, activePane: leaf.id }, leaf.id, tab.id)
++        }
++      }
++      // No UI terminal below yet: mint one (quota + enable switch gate it).
++      if (!isTabEnabled('terminal')) return state
++      const descriptor = tabs.get('terminal')
++      if (descriptor?.createTab === undefined) return state
++      const created = descriptor.createTab(state)
++      if (created === null) return state
++      return openTabInBottomTree(state, created.tab)
++    })
++  }
++
+   return {
+     registerTab,
+     registerFileViewer,
+@@ -708,6 +751,14 @@ export function createBetterSidebarService(store: SidebarStore): BetterSidebarSe
+     updateTab,
+     activateTab,
+     openFile,
++    // Panel control: the layout gestures external plugins (keyboard
++    // shortcuts) drive. All no-ops without an active session (the store's
++    // reduce contract) — same as any other per-session state write.
++    togglePanel: () => store.reduce(togglePanel),
++    toggleBottomPanel: () => store.reduce(toggleBottomPanelState),
++    setFullscreen: (fullscreen: boolean) => { store.reduce((s) => setFullscreenState(s, fullscreen)) },
++    toggleFullscreen: () => store.reduce(toggleFullscreenState),
++    toggleBottomTerminal,
+   }
+ }
+ 
+diff --git a/src/client/sidebar.module.css b/src/client/sidebar.module.css
+index 68f709d..915e531 100644
+--- a/src/client/sidebar.module.css
++++ b/src/client/sidebar.module.css
+@@ -80,7 +80,17 @@
+   /* Expand/collapse slides the panel; fullscreen animates the width. */
+   transition:
+     transform var(--ds-transition-duration-slow) var(--ds-ease-in-out),
+-    width var(--ds-transition-duration-slow) var(--ds-ease-in-out);
++    width var(--ds-transition-duration-slow) var(--ds-ease-in-out),
++    left var(--ds-transition-duration-slow) var(--ds-ease-in-out);
++}
++
++/* Fullscreen: the workbench covers the whole window (the app stays mounted
++   underneath — toggling back slides the panel to its normal width). The
++   z-index sits above the app surface but below the toggle cluster (55), so
++   the collapse/fullscreen buttons stay reachable in fullscreen. */
++.panelFullscreen {
++  left: 0;
++  z-index: 54;
+ }
+ 
+ /* Collapsed: slid off-screen, interactive nothing, hidden after the slide. */
+@@ -656,6 +666,101 @@
+   text-overflow: ellipsis;
+ }
+ 
++/* 外部目录根（工作区外路径）：分隔标题 + 添加输入条 + 移除按钮 */
++.explorerExtraSection {
++  margin: 10px 8px 2px;
++  font: var(--dsw-font-s-12);
++  color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
++  letter-spacing: 0.02em;
++}
++
++.explorerAddToggle {
++  font-size: 15px;
++  line-height: 1;
++}
++
++.explorerAddBar {
++  flex: none;
++  display: flex;
++  flex-direction: column;
++  gap: 6px;
++  padding: 6px 8px 4px;
++  border-bottom: 1px solid var(--dsw-alias-border-l2);
++  margin-bottom: 4px;
++}
++
++.explorerInput {
++  width: 100%;
++  height: 30px;
++  padding: 0 8px;
++  box-sizing: border-box;
++  font: var(--dsw-font-s-14);
++  color: var(--dsw-alias-label-primary);
++  background: var(--dsw-alias-bg-base);
++  border: 1px solid var(--dsw-alias-border-l2);
++  border-radius: 8px;
++  outline: none;
++}
++
++.explorerInput:focus {
++  border-color: var(--dsw-alias-border-l1);
++}
++
++.explorerAddActions {
++  display: flex;
++  gap: 6px;
++}
++
++.explorerAddGo {
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  height: 26px;
++  padding: 0 10px;
++  border: none;
++  border-radius: 7px;
++  background: var(--dsw-alias-interactive-bg-hover);
++  color: var(--dsw-alias-label-primary);
++  font: var(--dsw-font-s-13);
++  cursor: pointer;
++}
++
++.explorerAddGo:hover {
++  background: var(--dsw-alias-interactive-bg-hover-strong, var(--dsw-alias-interactive-bg-hover));
++}
++
++.explorerAddError {
++  margin: 0;
++}
++
++.explorerRemove {
++  flex: none;
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  width: 20px;
++  height: 20px;
++  margin-left: auto;
++  border: none;
++  border-radius: 6px;
++  background: transparent;
++  color: var(--dsw-alias-label-secondary);
++  font-size: 13px;
++  line-height: 1;
++  cursor: pointer;
++  opacity: 0;
++}
++
++.explorerRow:hover .explorerRemove,
++.explorerRow:focus-visible .explorerRemove {
++  opacity: 1;
++}
++
++.explorerRemove:hover {
++  background: var(--dsw-alias-interactive-bg-hover);
++  color: var(--dsw-alias-label-primary);
++}
++
+ /* The hover-revealed @-reference button at the row's far right (and the
+    transient "copied" label that replaces it after a copy). Hidden rows
+    keep the name at full width; hovering or focusing the row reveals it. */
+diff --git a/src/client/state.ts b/src/client/state.ts
+index 8656ddc..c0e6a70 100644
+--- a/src/client/state.ts
++++ b/src/client/state.ts
+@@ -61,6 +61,12 @@ export type SplitNode = SidebarLeaf | SidebarSplit
+ /** The full per-session state. */
+ export interface SidebarState {
+   panelOpen: boolean
++  /**
++   * Whether the right workbench panel covers the whole window (fullscreen).
++   * Transient: never persisted (the workbench restores its normal geometry
++   * after a reload), and entering fullscreen forces the panel open.
++   */
++  fullscreen: boolean
+   width: number
+   /** The pane receiving newly opened tabs (last pane the user touched).
+    *  Pane ids are globally unique across BOTH trees (shared uid counter), so
+@@ -157,6 +163,7 @@ export function makeDefaultState(width = PANEL_DEFAULT, panelOpen = true, seedEx
+   const bottomLeaf: SidebarLeaf = { kind: 'leaf', id: uid('pane'), tabs: [], active: null }
+   return {
+     panelOpen,
++    fullscreen: false,
+     width,
+     activePane: leaf.id,
+     nextTerminal: 1,
+@@ -505,6 +512,31 @@ export function openTabInActivePane(state: SidebarState, tab: SidebarTab): Sideb
+   }
+ }
+ 
++/**
++ * Root a tab in the BOTTOM tree's first pane and expand the bottom panel —
++ * the keyboard "focus the workbench terminal" path, which must never land in
++ * the right panel regardless of the current activePane. Id-based safety
++ * net first (a same-id tab focuses instead of duplicating), then the fresh
++ * tab lands in the bottom tree's first leaf and becomes active.
++ */
++export function openTabInBottomTree(state: SidebarState, tab: SidebarTab): SidebarState {
++  if (tabOpenIn(state, tab.id)) {
++    const paneId = allLeaves(state.bottomSplits).find(leaf => leaf.tabs.some(t => t.id === tab.id))
++    if (paneId !== undefined) return activateTab({ ...state, bottomOpen: true }, paneId.id, tab.id)
++    // Same id in the RIGHT tree only: fall through to mint in the bottom.
++  }
++  const leaf = firstLeaf(state.bottomSplits)
++  return {
++    ...state,
++    bottomOpen: true,
++    activePane: leaf.id,
++    bottomSplits: mapLeaf(state.bottomSplits, leaf.id, (l) => {
++      l.tabs = [...l.tabs, tab]
++      l.active = tab.id
++    }),
++  }
++}
++
+ /** Move a tab from one pane to another (insert at index; -1 appends).
+  *  The panes may live in DIFFERENT trees — dragging a tab between the two
+  *  panels removes it from its own tree and lands it in the other one. */
+@@ -610,6 +642,22 @@ export function toggleBottomPanel(state: SidebarState): SidebarState {
+   return { ...state, bottomOpen: !state.bottomOpen }
+ }
+ 
++/** Enter or leave fullscreen. Entering forces the panel open (a collapsed
++ *  panel has nothing to maximize); leaving restores the previous geometry
++ *  (the panel stays open at its stored width). Same-reference when the
++ *  target state is already reached, so repeated calls never churn. */
++export function setFullscreen(state: SidebarState, fullscreen: boolean): SidebarState {
++  if (state.fullscreen === fullscreen && (!fullscreen || state.panelOpen)) return state
++  return fullscreen
++    ? { ...state, panelOpen: true, fullscreen: true }
++    : { ...state, fullscreen: false }
++}
++
++/** Toggle fullscreen (see {@link setFullscreen}). */
++export function toggleFullscreen(state: SidebarState): SidebarState {
++  return setFullscreen(state, !state.fullscreen)
++}
++
+ /** Set the panel width (clamped to the contract range; the upper bound is
+  * the viewport so the fullscreen expansion can fill the window). */
+ export function setWidth(state: SidebarState, width: number): SidebarState {
+@@ -829,6 +877,9 @@ export function sanitizeState(parsed: unknown): SidebarState | undefined {
+   const maxWidth = typeof window !== 'undefined' ? window.innerWidth : Infinity
+   return {
+     panelOpen: record.panelOpen,
++    // Fullscreen is transient by contract — a reload always restores the
++    // normal geometry (the field is also excluded from persistence writes).
++    fullscreen: false,
+     width: Math.max(PANEL_MIN, Math.min(record.width, maxWidth)),
+     // A stale duplicate pane id may have been re-ided; follow the rename so
+     // new tabs still land in the pane the user was using.
+@@ -1080,7 +1131,9 @@ export class SidebarStore {
+     const timer = window.setTimeout(() => {
+       this.persistTimers.delete(sessionId)
+       try {
+-        localStorage.setItem(`${STORAGE_PREFIX}:${sessionId}`, JSON.stringify(state))
++        // Fullscreen is excluded from persistence: the workbench must
++        // reload into its normal geometry, never stuck maximized.
++        localStorage.setItem(`${STORAGE_PREFIX}:${sessionId}`, JSON.stringify({ ...state, fullscreen: false }))
+       } catch {
+         // Storage full or unavailable: layout memory is best-effort.
+       }
