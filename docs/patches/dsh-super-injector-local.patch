@@ -1,0 +1,445 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 0254eba..95afabc 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,7 +2,10 @@
+ 
+ 本项目版本与仓库提交对应，格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
+ 
+-## [0.3.3] — 2026-08-15
++> **版本以 git tag 为准**：已发布 v0.3.1 / v0.3.3（GitHub Releases 资产）；未打 tag 的
++> 小节为开发史（其内容随下一个发布一并交付）。
++
++## [0.3.3] — 2026-08-15（已发布，git tag v0.3.3）
+ 
+ ### 更新（高性能引导升级为 P1-P23 完整认知）
+ 
+@@ -13,7 +16,32 @@
+ 
+ ### 验证
+ 
+-- 文档-only 更新（README/CHANGELOG），无 lib 变更；注入器自检不受影响
++- v0.3.3 为**实装发布**（含 lib 变更，非文档-only）：注入器自检 8/8 PASS（测试插件构建 /
++  注入 host ✓ / 热重载 uid 变化 / 自重载节流 / 预检拦截 / lib 恢复 / 卸载即净 / patch 写入
++  合法性），Windows 官方装配路径实测
++- 历史说明：v0.3.1 之后至 v0.3.3 之前的提交（0.3.2 特性、0.3.3 文档、patch 去重）未单独打
++  tag——v0.3.1 的 Release 资产含其中部分内容，完整内容随 v0.3.3 交付
++
++### 修复（v0.3.3 实装：Windows 装配实测三 bug + 自包含打包）
++
++- **writePatch/extractPatchBlocks 粘连 bug（patch 串位）**：条目块后的顶格注释被并入前一块，
++  块间重写无换行 → 注释与下一 `- id:` 粘连成一行，`disabled: true` 错挂上一条目（实测：
++  卸载自检插件后注入器行被禁用）。修复：每块保留行尾换行、顶格注释单独成块，块间 join 不再粘连
++- **DSH_HOME 优先（homedir 错家）**：web 进程 homedir 与 DSH_HOME 不一致时（如服务账户/
++  跨用户部署），registry/profileNodeModules/日志全错位，junction 建到错误 profile → loader
++  找不到包。修复：`process.env.DSH_HOME || homedir()/.dsh` 统一路径（scaffold 模板同步）
++- **自检 tmpDir 去硬编码**：移除自检临时目录的硬编码个人路径（盘符/用户名不再出现），改 DSH_HOME 下
++  稳定目录；`reloadPackage` 磁盘降级改 import **realpath URL**（junction URL 会被 tsx 旧缓存
++  命中，tmpDir 迁移后重载失效——实测 uid 不变）
++- **findBash 拒绝 WSL**：Windows 装 WSL 时 System32\bash.exe 抢先 PATH 命中，构建必挂
++  （"适用于 Linux 的 Windows 子系统没有已安装的分发版"）。修复：Git/PortableGit 路径优先，
++  PATH 探测结果含 wsl 标记即拒绝
++- **宿主自包含打包（issue #1 根治）**：tsdown 新增 host bundle，把 @deepseek-ai/dsh-tools /
++  schemastery 等运行时依赖打进 lib/index.js——官方装配（`dsh plugin add <目录>`，link: 依赖
++  不装 peers）不再出现 `Cannot find package '@deepseek-ai/dsh-tools'`，任何装配路径均可加载
++- **杂物清理**：移除源码中的个人引用（engram 注释/默认匹配名）、`dev_reload_package` 描述
++  不再带默认插件名；`Config` 显式标注（junction 依赖下 declaration 报 TS2742）
++- 自检 8/8 PASS（含 patch 写入合法性 + 热重载 uid 变化）
+ 
+ ## [0.3.2] — 2026-08-15
+ 
+diff --git a/INSTALL.md b/INSTALL.md
+index 92d56e8..ce9ff02 100644
+--- a/INSTALL.md
++++ b/INSTALL.md
+@@ -142,7 +142,7 @@ dev_fix_patch --check  # 只检查
+ 
+ ### 预防
+ 
+-- 注入器 ≥0.3.2 的 `writePatch` **按 id 幂等去重**——它自己写 patch（卸载 disabled、
++- 注入器 ≥0.3.3 的 `writePatch` **按 id 幂等去重**——它自己写 patch（卸载 disabled、
+   self-test 等）不会再制造重复；已有重复也会在写入时顺带清理。
+ - 手动 patch 前先确认没有装过注入器；装过就用 `dev_fix_patch --check` 验证。
+ 
+diff --git a/package.json b/package.json
+index ed566f1..81928df 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@dsh-external/dsh-super-injector",
+-  "version": "0.3.1",
++  "version": "0.3.3",
+   "description": "超级模组注入器：运行时注入任意本地 DSH 插件包（junction 链接 + loader.create，不碰 patch/package.json/不重启），热重载全家桶 + 开发侧挂区一键转正 + 一键卸载 + 路由自愈 + 插件管理 UI（设置页：列表/卸载/拖入内化），清单持久化重启自动恢复——DSH 生态的 BepInEx 式模组注入入口",
+   "private": true,
+   "type": "module",
+@@ -44,7 +44,7 @@
+   "devDependencies": {
+     "@types/node": "^24.13.3",
+     "tsdown": "^0.22.14",
+-    "typescript": "^5.9.0"
++    "typescript": "^5.9.3"
+   },
+   "scripts": {
+     "build": "bash scripts/build.sh",
+diff --git a/scripts/build.sh b/scripts/build.sh
+index b78004f..eec773d 100644
+--- a/scripts/build.sh
++++ b/scripts/build.sh
+@@ -44,6 +44,8 @@ link_pkg schemastery vendor/schemastery
+ link_pkg @deepseek-ai/dsh-tools packages/core/tools
+ link_pkg @deepseek-ai/dsh-system-prompt packages/core/system-prompt
+ link_pkg @deepseek-ai/cordis-plugin-loader vendor/loader
++# @types/node（编译类型；checkout 自带）
++link_pkg @types/node node_modules/@types/node
+ 
+ STD_SCHEMA=$(find "$CHECKOUT/node_modules/.pnpm" -maxdepth 1 -type d -iname '@standard-schema+spec@*' 2>/dev/null | head -1)
+ if [ -n "$STD_SCHEMA" ]; then
+diff --git a/src/index.ts b/src/index.ts
+index e64e8b1..cf2b6e4 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -241,8 +241,10 @@ export const Config = z.object({
+ export function apply(ctx: AppContext, config: Config): void {
+   // 短名（去 scope）：日志文件名不能含 '/'（会变成子路径）
+   const SHORT = ${JSON.stringify(pkgName.split('/').pop() ?? 'plugin')}
+-  const logFile = config.logFile || join(homedir(), '.dsh', 'super-injector', SHORT + '.log')
+-  const watchFile = config.watchFile || join(homedir(), '.dsh', 'super-injector', 'self-heal.log')
++  // DSH_HOME 优先：web 进程 homedir 可能与 DSH_HOME 不一致（部署常见），homedir() 推导会错位
++  const dshHome = process.env.DSH_HOME || join(homedir(), '.dsh')
++  const logFile = config.logFile || join(dshHome, 'super-injector', SHORT + '.log')
++  const watchFile = config.watchFile || join(dshHome, 'super-injector', 'self-heal.log')
+   let cycles = 0
+   let llmCalls = 0
+   let lastRoute: { provider: string; model: string } | null = null
+@@ -393,7 +395,7 @@ export function apply(ctx: ClientContext): void {
+ }
+ `
+ 
+-/** UI 形态的 tsdown 配置（简化版，参照 engram）。 */
++/** UI 形态的 tsdown 配置（简化版，参照官方 packages 模式）。 */
+ const SCAFFOLD_TSDOWN = (pkgName: string): string => `import { fileURLToPath } from 'node:url'
+ import type { UserConfig } from 'tsdown'
+ 
+@@ -505,6 +507,9 @@ export interface Config {
+   watches: Array<{ dir: string; match: string }>
+ }
+ 
++// 显式标注为 Config 接口：junction 化依赖（vendor/cosmokit 等）会让推断类型
++// 引用非便携绝对路径，declaration 编译报 TS2742。schemastery 的 Schema 类型
++// 未导出，直接断言到本包接口（loader 侧只做校验，运行类型语义不变）。
+ export const Config = z.object({
+   registryFile: z.string().default(''),
+   profileNodeModules: z.string().default(''),
+@@ -514,7 +519,7 @@ export const Config = z.object({
+     dir: z.string().required(),
+     match: z.string().required(),
+   })).default([]),
+-})
++}) as unknown as Config
+ 
+ interface RegistryEntry {
+   dir: string
+@@ -564,8 +569,12 @@ function withOpLock<T>(fn: () => Promise<T> | T): Promise<T> {
+ 
+ export function apply(ctx: AppContext, config: Config): void {
+   const logger = ctx.logger
+-  const registryFile = config.registryFile || join(homedir(), '.dsh', 'super-injector', 'registry.json')
+-  const profileNodeModules = config.profileNodeModules || join(homedir(), '.dsh', 'profiles', 'web', 'node_modules')
++  // ⚠️ DSH_HOME 优先（实测踩坑）：部署的 web 进程 homedir 可能与 DSH_HOME 指向
++  // 不同用户（如服务账户/另一用户 profile），homedir() 推导的路径会全部错位——
++  // junction 建到错误 profile、loader 找不到包。DSH_HOME 环境变量才是权威。
++  const dshHome = process.env.DSH_HOME || join(homedir(), '.dsh')
++  const registryFile = config.registryFile || join(dshHome, 'super-injector', 'registry.json')
++  const profileNodeModules = config.profileNodeModules || join(dshHome, 'profiles', 'web', 'node_modules')
+   // 热重载的 config 合并路径可能缺 schema 新字段（旧 fiber _config + patch 旧值），
+   // 防御性兜底（schema 默认值只在 loader 装配时保证）。
+   const intervalMs = config.intervalMs ?? 1500
+@@ -752,7 +761,9 @@ export function apply(ctx: AppContext, config: Config): void {
+     }
+   }
+ 
+-  /** 把 patch 内容切分为"条目块"（`- id:` 及其缩进子行 + 前置注释行）。 */
++  /** 把 patch 内容切分为"条目块"（`- id:` 及其缩进子行 + 前置注释行）。
++   * 每块文本保留行尾换行，块间 join 不粘连；顶格注释单独成块（不并入前一条目，
++   * 否则重写时注释会与下一条目粘连成一行、后续 `disabled: true` 等错挂条目）。 */
+   function extractPatchBlocks(content: string): Array<{ id?: string; text: string }> {
+     const lines = content.split('\n')
+     const blocks: Array<{ id?: string; text: string }> = []
+@@ -761,12 +772,23 @@ export function apply(ctx: AppContext, config: Config): void {
+       const idMatch = /^\s*- id:\s*([^\s#]+)/.exec(line)
+       if (idMatch) {
+         if (current) blocks.push(current)
+-        current = { id: idMatch[1], text: line }
++        current = { id: idMatch[1], text: line + '\n' }
+       } else if (current) {
+-        current.text += '\n' + line
++        if (/^\s/.test(line) || line.trim() === '') {
++          // 条目缩进子行或空行：留在当前块
++          current.text += line + '\n'
++        } else {
++          // 顶格注释/杂散行：结束当前块，单独成块保留（防止与下一条目粘连）
++          blocks.push(current)
++          current = null
++          blocks.push({ text: line + '\n' })
++        }
+       } else if (line.trim() !== '' && !/^\s*#/.test(line) && !/^\s*\[\]\s*$/.test(line)) {
+         // 非注释、非空、非条目的杂散行：保留原样（如 - insert: 包裹行）
+-        blocks.push({ text: line })
++        blocks.push({ text: line + '\n' })
++      } else if (line.trim() !== '' && !/^\s*\[\]\s*$/.test(line)) {
++        // 顶格注释单独成块
++        blocks.push({ text: line + '\n' })
+       }
+     }
+     if (current) blocks.push(current)
+@@ -891,8 +913,13 @@ export function apply(ctx: AppContext, config: Config): void {
+           if (existsSync(lib)) { libPath = lib; break }
+         }
+         if (libPath) {
+-          await ctx.loader.import(pathToFileURL(libPath).href, () => [])
+-          const real = realpathSync(libPath).replace(/\\/g, '/')
++          // ⚠️ 必须 import realpath URL 而非 junction URL（实测踩坑）：tsx 按 URL
++          // 缓存模块，junction 路径变化（如自检 tmpDir 迁移）后 junction URL 仍
++          // 命中旧模块缓存，loadCache 不产生新 key → 匹配仍失败。realpath URL
++          // 是全新 key，强制重新解析磁盘并填充缓存。
++          const realLib = realpathSync(libPath)
++          await ctx.loader.import(pathToFileURL(realLib).href, () => [])
++          const real = realLib.replace(/\\/g, '/')
+           for (const u of loadCache.keys()) {
+             if (typeof u === 'string' && decodeURIComponent(u).includes(real)) { entryUrl = u; break }
+           }
+@@ -1241,7 +1268,7 @@ export function apply(ctx: AppContext, config: Config): void {
+       const config = currentConfigOf(fibers[0]?._config)
+       // ⚠️ 竞态修复：cordis 的 fiber.dispose() 是异步清理（_unload await disposables，
+       // 含 context/tools 注册注销）——必须先 await 旧 fiber 完全 dispose，
+-      // 再建新 fiber，否则新 fiber apply 时旧注册残留 → duplicate（此前 engram
++      // 再建新 fiber，否则新 fiber apply 时旧注册残留 → duplicate（此前热
+       // 重载连环 "already registered" 的根因）。registry.delete 是 fire-and-forget，
+       // 所以这里直接 await entry.fiber 的 dispose（返回 disposalTask Promise）。
+       const entryForDispose = [...ctx.loader.entries()].find((en) => {
+@@ -1306,7 +1333,7 @@ export function apply(ctx: AppContext, config: Config): void {
+     // 清 disabled（幽灵 entry 隔离）：热重载后 client 模块可重新注册（UI 生效）
+     normalizeEntriesByName(match)
+     // ⚠️ 以下 client 操作必须用**完整包名**：client-modules 的 processOne 对
+-    // entry.options.name 做精确匹配（短名 'dsh-engram-relay' ≠ '@dsh-external/...'），
++    // entry.options.name 做精确匹配（短名 ≠ '@dsh-external/...' 完整包名），
+     // 传短名会静默注册失败（实测 reload 报 client ✗ 的根因——microtask flush
+     // 后来用完整名补注册，但返回信息已经错了）。
+     const activeEntry = [...ctx.loader.entries()].find((en) => {
+@@ -1325,9 +1352,9 @@ export function apply(ctx: AppContext, config: Config): void {
+       if (cmDbg?.table) {
+         const keys: string[] = []
+         for (const k of cmDbg.table.keys()) keys.push(String(k))
+-        dbg.push(`  table keys(${keys.length}): ${keys.filter((k) => k.includes('engram') || k.includes('dsh-external')).join(',') || '(none)'}`)
++        dbg.push(`  table keys(${keys.length}): ${keys.filter((k) => k.includes('dsh-external')).join(',') || '(none)'}`)
+       }
+-      appendFileSync(join(homedir(), '.dsh', 'super-injector', 'reload-debug.log'), dbg.join('\n') + '\n')
++      appendFileSync(join(dshHome, 'super-injector', 'reload-debug.log'), dbg.join('\n') + '\n')
+     } catch { /* 诊断失败不阻塞 */ }
+     // client 模块补扫（表丢失/从未注册时自愈——web 重启后幽灵 entry 场景）
+     refreshClientRow(fullName)
+@@ -1809,8 +1836,8 @@ export function apply(ctx: AppContext, config: Config): void {
+       if (!cm || typeof cm.clientPath !== 'function') return 'client 服务不可用'
+       let path = cm.clientPath(name)
+       if (!path && cm.table && typeof cm.table.keys === 'function') {
+-        // match 可能是短名（如 'dsh-engram-relay'），client 表 key 是完整包名
+-        // （'@dsh-external/dsh-engram-relay'）——按子串宽松匹配避免误报。
++        // match 可能是短名，client 表 key 是完整包名
++        // （'@dsh-external/<name>'）——按子串宽松匹配避免误报。
+         for (const key of cm.table.keys()) {
+           if (String(key).includes(name)) {
+             path = cm.clientPath(key)
+@@ -1951,17 +1978,22 @@ export function apply(ctx: AppContext, config: Config): void {
+     return `OK: ${pkgName} 已注入（junction=${linkDir}）\n- host ${hostOk ? '✓' : '✗'}\n- ${client}`
+   }
+ 
+-  /** 卸载一个已注入的插件包：卸 entry（fiber dispose）→ 清 registry → 删 junction。 */
++  /** 卸载一个已注入的插件包：卸 entry（fiber dispose）→ 写 disabled（真实 entry id）→ 清 registry → 删 junction。 */
+   async function uninject(match: string): Promise<string> {
+     if (match.includes('super-injector')) return 'ERROR: 拒绝卸载 dsh-super-injector 自身（引导器不可卸载）'
+     const steps: string[] = []
+     let fullName: string | null = null
+-    // 1. loader entry 卸载（同时捕获完整包名）
++    const entryIds = new Set<string>()
++    // 1. loader entry 卸载（同时捕获完整包名与实际 entry id）
+     for (const entry of ctx.loader.entries()) {
+       const opts = entry.options
+       if (opts.group) continue
+       if (!opts.name.includes(match)) continue
+       fullName = opts.name
++      // ⚠️ entry id ≠ 包名（bundle patch 可声明自己的 id，如 dsh-file-fix 的
++      // entry id 是 upload）：写 disabled 必须用真实 entry id 才能覆盖 insert 规则。
++      const entryId = typeof entry.id === 'string' && entry.id ? entry.id : opts.id
++      if (entryId) entryIds.add(entryId)
+       try {
+         await entry.parent.remove(entry.id, true)
+         steps.push('entry 已卸载: ' + opts.name)
+@@ -1976,18 +2008,24 @@ export function apply(ctx: AppContext, config: Config): void {
+     // ⚠️ 必须解析式追加（实测踩坑）：官方 patch 文件初始是顶层 `[]`（空数组），
+     // 若盲 append `- id:` 会产生**两个顶层 YAML 值** → 解析必炸。正确做法：
+     // 移除顶层 `[]` 空数组后再追加条目，保证文件始终是单一顶层值（列表）。
+-    if (fullName) {
+-      const idShort = fullName.split('/').pop()
+-      if (idShort) {
+-        // ⚠️ 幂等：已存在同名 disabled 条目则跳过（否则重复卸载会累积条目——
+-        // 实测踩坑：自检多次卸载累积 6 个 self-test-plugin disabled）
+-        const patchFile = join(dirname(profileNodeModules), 'cordis.patch.yml')
+-        let already = false
+-        try { already = readFileSync(patchFile, 'utf8').includes(`id: ${idShort}`) } catch { /* 文件不存在 */ }
+-        if (already) {
+-          steps.push('profile patch 已有 disabled（幂等跳过）')
+-        } else if (writePatch(`\n# 已卸载插件（${fullName}）：disabled 阻断其 bundle patch 自装配\n- id: ${idShort}\n  disabled: true\n`)) {
+-          steps.push('profile patch 已写 disabled（阻断自装配，防 refresh 加回；writePatch 兼容 [] 初始形式）')
++    // 有卸载到的 entry 时按真实 entry id 写（可能多个）；仅 registry 命中（无
++    // entry）时回退包名短名。幂等由 writePatch 按 id 去重保证（实测踩坑：自检
++    // 多次卸载曾累积 6 个 self-test-plugin disabled）。
++    const disabledIds = entryIds.size > 0
++      ? [...entryIds]
++      : (fullName ? [fullName.split('/').pop()].filter((x): x is string => !!x) : [])
++    if (disabledIds.length > 0) {
++      const patchFile = join(dirname(profileNodeModules), 'cordis.patch.yml')
++      let content = ''
++      try { content = readFileSync(patchFile, 'utf8') } catch { /* 文件不存在按未配置 */ }
++      const already = disabledIds.every(id => content.includes(`id: ${id}`))
++      if (already) {
++        steps.push('profile patch 已有 disabled（幂等跳过）')
++      } else {
++        const list = disabledIds.map(id => `- id: ${id}\n  disabled: true`).join('\n')
++        const patchText = `\n# 已卸载插件（${fullName ?? match}）：disabled 阻断其 bundle patch 自装配\n${list}\n`
++        if (writePatch(patchText)) {
++          steps.push(`profile patch 已写 disabled（entry id: ${disabledIds.join(', ')}；阻断自装配，防 refresh 加回）`)
+         } else {
+           steps.push('profile patch 写入失败')
+         }
+@@ -2466,7 +2504,7 @@ export function apply(ctx: AppContext, config: Config): void {
+ 
+   safeRegister(defineTool({
+     name: 'dev_reload_package',
+-    description: '确定性热重载已加载的 bundle 插件包（清缓存 → 重新 import → registry 重建 fiber，失败回滚保留旧代）。不带参数时返回当下已装配插件清单；带参数重载并给出重载前后 fiber 状态对比。默认匹配 dsh-engram-relay',
++    description: '确定性热重载已加载的 bundle 插件包（清缓存 → 重新 import → registry 重建 fiber，失败回滚保留旧代）。不带参数时返回当下已装配插件清单；带参数重载并给出重载前后 fiber 状态对比。',
+     parameters: {
+       packageName: { type: 'string', description: '包路径子串（缺省 = 只列插件清单，不重载）' },
+     },
+@@ -2520,7 +2558,7 @@ export function apply(ctx: AppContext, config: Config): void {
+       render: (_args: unknown, value: unknown) => [{ type: 'text', text: String(value) }],
+     },
+     async execute(args: { profile?: string; check?: boolean }) {
+-      const profilesRoot = join(homedir(), '.dsh', 'profiles')
++      const profilesRoot = join(dshHome, 'profiles')
+       let profileDirs: string[] = []
+       try { profileDirs = readdirSync(profilesRoot).filter((d) => !d.startsWith('.')) } catch {
+         return 'ERROR: 未找到 profiles 目录: ' + profilesRoot
+@@ -2718,10 +2756,10 @@ export function apply(ctx: AppContext, config: Config): void {
+     }
+   }
+ 
+-  /** bash 探测：PATH 直查 → PortableGit/Program Files 常见路径（web 进程 PATH 可能不含）。 */
++  /** bash 探测：Git/PortableGit 常见路径优先（确定性）→ PATH 直查（拒绝 WSL 的 bash.exe）。
++   * 实测踩坑：Windows 装了 WSL 时 System32\bash.exe 抢先于 PATH 命中——启动即报
++   * "适用于 Linux 的 Windows 子系统没有已安装的分发版"，构建必挂。 */
+   function findBash(): string {
+-    const probe = spawnSync('bash', ['--version'], { encoding: 'utf8' })
+-    if (!probe.error) return 'bash'
+     const candidates = [
+       join(process.env.USERPROFILE ?? '', '.workbuddy', 'binaries', 'PortableGit', 'versions', '1.2.0', 'usr', 'bin', 'bash.exe'),
+       'C:/Program Files/Git/bin/bash.exe',
+@@ -2730,6 +2768,12 @@ export function apply(ctx: AppContext, config: Config): void {
+     for (const c of candidates) {
+       if (existsSync(c)) return c
+     }
++    const probe = spawnSync('bash', ['--version'], { encoding: 'utf8' })
++    if (!probe.error) {
++      const out = String(probe.stdout ?? '') + String(probe.stderr ?? '')
++      // WSL 启动器输出 wsl.exe 相关提示（中文系统为 UTF-16 乱码，ASCII 标记仍可辨）
++      if (!/wsl\.exe|windows subsystem/i.test(out)) return 'bash'
++    }
+     return ''
+   }
+ 
+@@ -2947,12 +2991,13 @@ export function apply(ctx: AppContext, config: Config): void {
+     async execute() {
+       const results: Array<[string, boolean, string]> = []
+       const check = (name: string, ok: boolean, detail = ''): void => { results.push([name, ok, detail]) }
+-      // ⚠️ 测试插件**固定名字 + 固定目录**（D: 盘）：tsx 的 resolve 缓存按
+-      // specifier 记忆解析路径——换名/换目录会命中旧缓存（ENOENT 旧路径，
+-      // 实测踩坑）。全新 specifier + 固定目录 → 首次解析后缓存永远一致。
++      // ⚠️ 测试插件**固定 specifier + 固定目录**：tsx 的 resolve 缓存按 specifier
++      // 记忆解析路径——换名/换目录会命中旧缓存（ENOENT 旧路径，实测踩坑）。
++      // 目录取 DSH_HOME 下稳定路径（不硬编码盘符/用户名，随部署走），
++      // 首次解析后缓存永远一致。
+       const TEST_PKG = '@dsh-external/selftest-runner'
+       const TEST_SHORT = 'selftest-runner'
+-      const tmpDir = join('D:/', '杨佳禾', 'dsh', TEST_SHORT)
++      const tmpDir = join(dshHome, 'super-injector', TEST_SHORT)
+       try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
+       mkdirSync(tmpDir, { recursive: true })
+       try {
+@@ -2996,7 +3041,7 @@ export function apply(ctx: AppContext, config: Config): void {
+           check('注入（host ✓）', false, inj + '\n' + diag)
+         }
+         // ── 4. 热重载 → fiber uid 变化（自包含：重载 selftest-runner 自身。
+-        //    固定 specifier + 固定目录 → 缓存一致；不再依赖 engram 等外部插件）──
++        //    固定 specifier + 固定目录 → 缓存一致；不依赖外部插件）──
+         const beforeUid = (() => { for (const e of ctx.loader.entries()) { const o = e.options; if (!o.group && String(o.name) === TEST_PKG && e.fiber) return e.fiber.uid } return null })()
+         try {
+           // 确保模块在缓存（purge 旧 key + 重新 import——固定目录解析一致）
+@@ -3111,7 +3156,7 @@ export function apply(ctx: AppContext, config: Config): void {
+   // - 静态内容（身份/能力声明，编译期常量）→ order 靠前（头部）：tools schema
+   //   变更（注入/转正工具）时静态段仍在缓存前缀内，只伤 schema 之后；
+   // - 动态内容（记忆检索/实时状态）→ 严禁进 system 头部：走消息尾追加
+-  //   （engram-relay 的尾部注入即此模式）或 system 最尾，变化只伤自身之后；
++  //   （尾部注入插件即此模式）或 system 最尾，变化只伤自身之后；
+   // - 本段 text 必须保持编译期常量——任何每轮变化的动态拼接都会全灭前缀缓存。
+   // ⚠️ 容忍重复注册（实测：自重载 rebuild 时旧 entry 的 context 可能残留，
+   // duplicate 会让 apply 整体 failed → 注入器死亡 + 自愈 3 连败）。duplicate
+@@ -3181,12 +3226,13 @@ export function apply(ctx: AppContext, config: Config): void {
+       type: 'user/message',
+       seq: 0,
+       time: Date.now(),
++      // ⚠️ user/message 的 data 就是消息本体（dsh-session 事件契约），不能包一层
++      // `message:`——嵌套形状会让 router-standard 的 sessionMode 提取不到文本，
++      // 插件生成的首条消息被误判 weak（router-standard issue #1 联动修复）。
+       data: {
+-        message: {
+-          kind: 'user',
+-          source: { kind: 'user' },
+-          content: [{ type: 'text', text: prompt }],
+-        },
++        kind: 'user',
++        source: { kind: 'user' },
++        content: [{ type: 'text', text: prompt }],
+       },
+     }]
+     const handle = await agentsSvc.create({
+diff --git a/tsdown.config.ts b/tsdown.config.ts
+index bdbe55d..39c71a9 100644
+--- a/tsdown.config.ts
++++ b/tsdown.config.ts
+@@ -34,4 +34,25 @@ const clientBundle: UserConfig = {
+   },
+ }
+ 
+-export default [clientBundle] satisfies UserConfig[]
++// 宿主自包含打包：把 @deepseek-ai/dsh-tools / schemastery 等运行时依赖打进
++// lib/index.js（node: 内置模块保持 external）。官方装配（dsh plugin add <目录>）
++// 对目录外 link: 依赖不装 peers，Node 从包真实路径解析不到
++// '@deepseek-ai/dsh-tools' 会整棵 plugin tree 加载失败（issue #1）——
++// 打包后 lib 零外部依赖，任何装配路径都能加载。
++const hostBundle: UserConfig = {
++  entry: { index: 'src/index.ts' },
++  outDir: 'lib',
++  format: 'esm',
++  platform: 'node',
++  dts: false,
++  sourcemap: true,
++  clean: false,
++  deps: {
++    alwaysBundle: (id: string) => !id.startsWith('node:'),
++  },
++  outputOptions: {
++    entryFileNames: 'index.js',
++  },
++}
++
++export default [hostBundle, clientBundle] satisfies UserConfig[]
