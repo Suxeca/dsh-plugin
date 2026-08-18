@@ -178,7 +178,7 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-lab-kit
 
 ## 推理模式路由预设（`presets/`）
 
-DSH 的 [dsh-agent-presets](https://github.com/deepseek-ai/deepseek-harness/tree/main/packages/preset/agent-presets) 扫描 `~/.dsh/.agent-presets/<id>/agent.cordis.yml` 发现本地 preset。本仓库收录**本机在用的两个路由预设**。
+DSH 的 [dsh-agent-presets](https://github.com/deepseek-ai/deepseek-harness/tree/main/packages/preset/agent-presets) 扫描 `~/.dsh/.agent-presets/<id>/agent.cordis.yml` 发现本地 preset。本仓库收录**本机在用的三个路由预设**。
 
 | 机制　　 | 说明 |
 | --- | --- |
@@ -186,13 +186,13 @@ DSH 的 [dsh-agent-presets](https://github.com/deepseek-ai/deepseek-harness/tree
 | 解锁　　 | 首个工具调用后暴露完整工具目录；模式从持久会话事件推导，resume 不丢 |
 | agent 可见 | `dev_router_status`（模式/路由）、`dev_router_mode`（调整 band/数值）、`dev_mode_subagent`（隔离模式子任务） |
 
-| 维度　　 | router-standard | router-opencode-go |
+| 维度　　 | router-standard | router-opencode-go | router-commandcode |
 | --- | --- | --- |
-| 定位　　 | 通用任务感知路由 | opencode-go / deepseek-v4-flash 适配变体 |
-| 来源　　 | 派生自 [yjh051108/dsh-router-standard](https://github.com/yjh051108/dsh-router-standard)（MIT，含论文 P1–P30） | 上述 router-standard 的派生适配 |
-| 模式　　 | 四模式 · 三稳定带（spec / 过渡 / react） | Flash 恒 weak + 深度思考锚（对照实验数据见[测量文档](docs/measurements-router-opencode-go.md)） |
-| 本地补丁　　 | `sessionModeUser` 只分类真实用户消息（防 sage-mem 注入污染） | 同左 + 移除失效近场引导 + provider 路由记录（不硬门控） |
-| 适用　　 | deepseek-official 日常 | opencode-go flash（手动选模型，默认模型不动） |
+| 定位　　 | 通用任务感知路由 | opencode-go / deepseek-v4-flash 适配变体 | commandcode / deepseek/deepseek-v4-flash 适配变体 |
+| 来源　　 | 派生自 [yjh051108/dsh-router-standard](https://github.com/yjh051108/dsh-router-standard)（MIT，含论文 P1–P30） | 上述 router-standard 的派生适配 | 上述 router-opencode-go 的 provider 再适配 |
+| 模式　　 | 四模式 · 三稳定带（spec / 过渡 / react） | Flash 恒 weak + 深度思考锚（对照实验数据见[测量文档](docs/measurements-router-opencode-go.md)） | 同左（Flash 恒 weak + 深度思考锚） |
+| 本地补丁　　 | `sessionModeUser` 只分类真实用户消息（防 sage-mem 注入污染） | 同左 + 移除失效近场引导 + provider 路由记录（不硬门控） | 同左，scope 改为 `commandcode` |
+| 适用　　 | deepseek-official 日常 | opencode-go flash（手动选模型，默认模型不动） | commandcode deepseek/deepseek-v4-flash（手动选模型，默认模型不动） |
 
 **安装**
 
@@ -200,12 +200,13 @@ DSH 的 [dsh-agent-presets](https://github.com/deepseek-ai/deepseek-harness/tree
 mkdir -p ~/.dsh/.agent-presets
 cp -r presets/router-standard ~/.dsh/.agent-presets/
 cp -r presets/router-opencode-go ~/.dsh/.agent-presets/
-# 重启 DSH 后新建会话，选择 Router Standard / Router Opencode-Go
+cp -r presets/router-commandcode ~/.dsh/.agent-presets/
+# 重启 DSH 后新建会话，选择 Router Standard / Router Opencode-Go / Router Command Code
 ```
 
 > ⚠️ 安装副本须保持**唯一模块文件名**（loader 按 URL 缓存 ESM 模块，原地覆盖拿到旧缓存）；升级先删旧目录再复制。
 
-**运维（router-opencode-go）**：[`presets/router-opencode-go/OPERATIONS.md`](presets/router-opencode-go/OPERATIONS.md)
+**运维（router-opencode-go）**：[`presets/router-opencode-go/OPERATIONS.md`](presets/router-opencode-go/OPERATIONS.md) · **运维（router-commandcode）**：[`presets/router-commandcode/OPERATIONS.md`](presets/router-commandcode/OPERATIONS.md)
 
 | 运维项　　 | 说明 |
 | --- | --- |

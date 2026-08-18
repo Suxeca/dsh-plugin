@@ -1,0 +1,2 @@
+name: Router Command Code (experimental)
+description: Task-aware routing for the commandcode provider — spec (plan-first) for fixes, react (doer) for builds; full Standard tools after the first tool call. Persona/guide logic mirrors router-standard; scoped to provider "commandcode".
