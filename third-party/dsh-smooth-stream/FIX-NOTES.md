@@ -46,3 +46,16 @@ function clampLag(lag: number, port: HTMLElement): number {
 
 ## 上游提交建议
 给 laplace-bit/dsh-smooth-stream 提 PR：clampLag 位移钳制，附本记录。
+
+---
+
+## 2026-08-19 晚间更新：上游 v0.3.3 重写取代本地补丁
+
+**PR #6 结果**：上游维护者审查后未合并——v0.3.3（commit de30e05 "unify adaptive reveal and conversation follow"）已**重写 teleprompterGlide.ts**（986 行变化），用 `safeShiftLimit()` 基于真实 DOM 几何（消息底部到 composer 距离）计算安全位移边界，取代固定值钳制；不再使用 clip-path；测试 112 passed。固定 28px 行高无法代表代码块/工具行/不同缩放的真实行高，且 clampLag 不修改 animatedH 会立即丢弃视觉补偿——PR 方向有价值但实现被新架构取代。
+
+**处置**：
+1. PR #6 已关闭（附说明）
+2. 本机从 v0.3.2 + clampLag 补丁 **升级到 npm v0.3.3**（本地副本 `third-party/dsh-smooth-stream/` 已替换 src/lib，运行目录 junction 自动生效）
+3. 本地补丁备份：`/tmp/smooth-stream-local-fix-backup/`（src + lib）
+
+**后续**：若 v0.3.3 在真实浏览器（中文+长路径换行）仍复现重叠，基于新架构（safeShiftLimit）提供逐帧几何回归测试复现材料给上游。
