@@ -45,6 +45,21 @@ function isEditableTarget(target: EventTarget | null): boolean {
     || el.isContentEditable === true
 }
 
+/** Whether an editable target has a non-empty text selection (a real cut /
+ *  copy selection). Outside editable fields there is never a cut selection. */
+function hasSelection(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) {
+    // contentEditable: fall back to the window selection.
+    if (target instanceof HTMLElement && target.isContentEditable) {
+      const sel = window.getSelection()
+      return sel !== null && !sel.isCollapsed
+    }
+    return false
+  }
+  return target.selectionStart !== null && target.selectionEnd !== null
+    && target.selectionStart !== target.selectionEnd
+}
+
 /** Toggle dsh-synapse's conversation-map view: click the opposite view
  *  switch button (`data-view="map"` ⇄ `data-view="dialog"`). No-op when the
  *  synapse view switcher is absent. */
@@ -184,11 +199,15 @@ export function apply(ctx: ClientContext): void {
       return
     }
 
-    // Ctrl+X prefix sequence: Ctrl+X (not in an editable field) arms a
-    // 1.5s window in which M (no modifiers) pulls up /model. Any other key
-    // disarms; Ctrl+X itself is left to the page (non-editable targets have
-    // no default cut behavior anyway).
-    if (!isEditableTarget(e.target)) {
+    // Ctrl+X prefix sequence: Ctrl+X arms a 1.5s window in which M (no
+    // modifiers) pulls up /model. Works BOTH outside and inside editable
+    // fields: inside an input/textarea the sequence is only armed when there
+    // is NO selected text — a real cut gesture (selection present) always
+    // keeps its native behavior, so typing shortcuts never lose Cut.
+    if (isEditableTarget(e.target) && hasSelection(e.target)) {
+      // A cut with an active selection: let the browser handle Ctrl+X as-is.
+      if (xPrefixArmed) disarmXPefix()
+    } else {
       if (xPrefixArmed && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'm') {
         e.preventDefault()
         disarmXPefix()
@@ -202,10 +221,6 @@ export function apply(ctx: ClientContext): void {
         return
       }
       if (xPrefixArmed) disarmXPefix()
-    } else if (xPrefixArmed) {
-      // Focus moved into an editable field while armed: drop the prefix so a
-      // subsequent M is not swallowed.
-      disarmXPefix()
     }
 
     // Customizable toggle chord (default Ctrl+K / Cmd+K).
