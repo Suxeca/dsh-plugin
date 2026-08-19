@@ -247,13 +247,14 @@ export function apply(ctx: ClientContext): void {
       return
     }
 
-    // Alt+U (input editing, Claude-Code-CLI style): delete the line before
-    // the caret in the focused editable. Holding the key auto-repeats the
-    // keydown, so each repeat deletes another segment/line. Outside an
-    // editable the key is left alone.
-    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'u') {
+    // Ctrl+U (input editing, Claude-Code-CLI style): delete the line before
+    // the caret in the focused editable; holding the key auto-repeats, so
+    // each repeat deletes another segment/line. Ctrl+U is swallowed page-wide
+    // (Chrome's "view source" default is disabled); outside an editable the
+    // key only prevents the browser default and does nothing else.
+    if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'u') {
+      e.preventDefault()
       if (isEditableTarget(e.target)) {
-        e.preventDefault()
         deleteLineBeforeCaret(e.target)
       }
       return
