@@ -23,6 +23,7 @@ export const ACTIONS = [
   'toggleBottom',
   'fullscreenLeft',
   'fullscreenRight',
+  'toggleSessionMap',
 ] as const
 export type ActionId = (typeof ACTIONS)[number]
 
@@ -45,6 +46,7 @@ export const ACTION_LABELS: Record<ActionId, string> = {
   toggleBottom: '折叠底栏 / 展开并聚焦终端',
   fullscreenLeft: '左侧栏全屏',
   fullscreenRight: '右侧栏全屏',
+  toggleSessionMap: '切换 对话/会话地图',
 }
 
 /** localStorage key backing the persisted keymap. */
@@ -91,6 +93,9 @@ export function defaultBindings(): Record<ActionId, Binding> {
     toggleBottom: { key: 'j', ...primary(), shift: false, alt: false },
     fullscreenLeft: { key: 'l', ctrl: false, shift: true, alt: true, meta: false },
     fullscreenRight: { key: 'r', ctrl: false, shift: true, alt: true, meta: false },
+    // Ctrl/Cmd+Shift+M = toggle between the normal conversation and the
+    // dsh-synapse conversation-map view (M = Map).
+    toggleSessionMap: { key: 'm', ...primary(), shift: true, alt: false },
   }
 }
 

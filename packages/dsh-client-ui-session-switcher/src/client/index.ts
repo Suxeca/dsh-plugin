@@ -34,6 +34,58 @@ function isImeComposition(event: KeyboardEvent): boolean {
   return event.isComposing || event.keyCode === 229
 }
 
+/** Whether the key event's target is an editable field (input / textarea /
+ *  contentEditable). The Ctrl+X prefix sequence is disabled there so a real
+ *  cut gesture is never hijacked. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const el = target
+  return el instanceof HTMLInputElement
+    || el instanceof HTMLTextAreaElement
+    || el.isContentEditable === true
+}
+
+/** Toggle dsh-synapse's conversation-map view: click the opposite view
+ *  switch button (`data-view="map"` ⇄ `data-view="dialog"`). No-op when the
+ *  synapse view switcher is absent. */
+function toggleSessionMapView(): void {
+  const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[data-view]'))
+  if (buttons.length === 0) return
+  const map = buttons.find(button => button.dataset.view === 'map')
+  const dialog = buttons.find(button => button.dataset.view === 'dialog')
+  if (map === undefined || dialog === undefined) return
+  const mapActive = map.getAttribute('aria-pressed') === 'true' || map.classList.contains('active')
+  ;(mapActive ? dialog : map).click()
+}
+
+/** Find the session composer textarea (the only main input box). */
+function findComposerTextarea(): HTMLTextAreaElement | null {
+  const candidates = Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea'))
+    .filter(ta => ta.offsetParent !== null) // visible
+  return candidates.find(ta => ta.placeholder.includes('发消息'))
+    ?? candidates.find(ta => ta.placeholder.includes('message'))
+    ?? candidates[0] ?? null
+}
+
+/**
+ * "Pull up /model": insert the `/model` command token into the composer and
+ * let DSH's slash trigger open the model popupSelect. Uses the native value
+ * setter so React's controlled textarea observes the change, preserving any
+ * existing draft by appending the token.
+ */
+function insertModelCommand(): void {
+  const ta = findComposerTextarea()
+  if (ta === null) return
+  const current = ta.value
+  const token = current.trim() === '' ? '/model' : `${current.replace(/\s+$/, '')} /model`
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+  setter?.call(ta, token)
+  ta.dispatchEvent(new Event('input', { bubbles: true }))
+  ta.focus()
+  // Move caret to the end so the slash menu's position follows the token.
+  ta.setSelectionRange(token.length, token.length)
+}
+
 /**
  * Mount the switcher: one React root hosting the palette, plus the global
  * keydown handler (driven by the customizable keymap). Torn down on dispose.
@@ -51,6 +103,18 @@ export function apply(ctx: ClientContext): void {
   const keymapStore = createKeymapStore()
   let container: HTMLDivElement | null = null
   let root: Root | null = null
+  // Ctrl+X prefix sequence (Ctrl+X then M pulls up /model). Armed only
+  // outside editable fields so a real cut gesture is never hijacked.
+  let xPrefixArmed = false
+  let xPrefixTimer: number | undefined
+
+  const disarmXPefix = (): void => {
+    xPrefixArmed = false
+    if (xPrefixTimer !== undefined) {
+      window.clearTimeout(xPrefixTimer)
+      xPrefixTimer = undefined
+    }
+  }
 
   /**
    * Open the conversation `offset` positions away (wraps around), moving
@@ -118,6 +182,30 @@ export function apply(ctx: ClientContext): void {
         openStore.close()
       }
       return
+    }
+
+    // Ctrl+X prefix sequence: Ctrl+X (not in an editable field) arms a
+    // 1.5s window in which M (no modifiers) pulls up /model. Any other key
+    // disarms; Ctrl+X itself is left to the page (non-editable targets have
+    // no default cut behavior anyway).
+    if (!isEditableTarget(e.target)) {
+      if (xPrefixArmed && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault()
+        disarmXPefix()
+        insertModelCommand()
+        return
+      }
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === 'x') {
+        xPrefixArmed = true
+        if (xPrefixTimer !== undefined) window.clearTimeout(xPrefixTimer)
+        xPrefixTimer = window.setTimeout(disarmXPefix, 1500)
+        return
+      }
+      if (xPrefixArmed) disarmXPefix()
+    } else if (xPrefixArmed) {
+      // Focus moved into an editable field while armed: drop the prefix so a
+      // subsequent M is not swallowed.
+      disarmXPefix()
     }
 
     // Customizable toggle chord (default Ctrl+K / Cmd+K).
@@ -190,6 +278,11 @@ export function apply(ctx: ClientContext): void {
         else console.warn('[session-switcher] workbench chord: better-sidebar service missing')
         return
       }
+      if (matchesBinding(bindings.toggleSessionMap, e)) {
+        e.preventDefault()
+        toggleSessionMapView()
+        return
+      }
     }
     // Escape: inside the open panel it is the panel's own concern (search →
     // manage → close); outside it closes the palette. With the palette
@@ -221,6 +314,7 @@ export function apply(ctx: ClientContext): void {
   console.log('[session-switcher] ready — shortcuts are customizable from the palette (⚙ 快捷键)')
 
   ctx.effect(() => () => {
+    disarmXPefix()
     window.removeEventListener('keydown', onWindowKeyDown, true)
     if (root !== null) {
       root.unmount()

@@ -73,10 +73,12 @@ describe('defaultBindings', () => {
     expect(d.toggleBottom).toMatchObject({ key: 'j', ctrl: true, shift: false, alt: false })
     expect(d.fullscreenLeft).toMatchObject({ key: 'l', ctrl: false, shift: true, alt: true })
     expect(d.fullscreenRight).toMatchObject({ key: 'r', ctrl: false, shift: true, alt: true })
+    // Ctrl/Cmd+Shift+M toggles the dsh-synapse conversation map.
+    expect(d.toggleSessionMap).toMatchObject({ key: 'm', ctrl: true, shift: true, alt: false })
     expect(ACTIONS).toEqual([
       'toggle', 'next', 'prev',
       'toggleLeftSidebar', 'toggleRightSidebar', 'toggleBottom',
-      'fullscreenLeft', 'fullscreenRight',
+      'fullscreenLeft', 'fullscreenRight', 'toggleSessionMap',
     ])
   })
 })
