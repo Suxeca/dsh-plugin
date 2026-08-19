@@ -68,6 +68,13 @@ function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value: strin
   el.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
+/** Clear the whole draft of an editable (input/textarea). */
+function clearEditable(target: EventTarget | null): void {
+  if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) return
+  setNativeValue(target, '')
+  target.setSelectionRange(0, 0)
+}
+
 /**
  * Claude-Code-CLI-style line deletion: remove the text before the caret on
  * the current line (or the whole previous line when the caret already sits
@@ -256,6 +263,17 @@ export function apply(ctx: ClientContext): void {
       e.preventDefault()
       if (isEditableTarget(e.target)) {
         deleteLineBeforeCaret(e.target)
+      }
+      return
+    }
+
+    // Ctrl+C in an editable WITHOUT a selection clears the whole draft
+    // (Claude-Code-CLI-style cancel-input). With a selection the native copy
+    // is preserved; outside editable fields copy is untouched too.
+    if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'c') {
+      if (isEditableTarget(e.target) && !hasSelection(e.target)) {
+        e.preventDefault()
+        clearEditable(e.target)
       }
       return
     }
