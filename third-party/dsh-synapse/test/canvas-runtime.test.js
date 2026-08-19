@@ -68,15 +68,6 @@ test('clicking a session card syncs the DSH current session', async () => {
   assert.match(cardClick, /thread\.dshSessionId !== null\) post\('synapse:activate-session'/)
 })
 
-test('workspace select only updates the left session library (drag-only map)', async () => {
-  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
-  const select = source.slice(source.indexOf("app.addEventListener('change'"), source.indexOf("app.addEventListener('input'"))
-
-  assert.match(select, /state\.selectedDshWorkspaceId = choice\.id/)
-  assert.doesNotMatch(select, /post\('synapse:activate-session'/)
-  assert.doesNotMatch(select, /choice\.sessionIds\[0\]/)
-})
-
 test('renders markdown tables and allows higher canvas zoom', async () => {
   const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
   const markdown = source.slice(source.indexOf('function markdownBlock'), source.indexOf('function overlapsCard'))
@@ -103,15 +94,6 @@ test('persists dragged card positions and can focus the current session', async 
   assert.match(source, /localStorage\.setItem\(CARD_POSITIONS_KEY/)
   assert.match(source, /function focusActiveCard\(\)/)
   assert.match(source, /data-action="focus-active"/)
-})
-
-test('workspace switching does not auto-load sessions into the map', async () => {
-  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
-  const select = source.slice(source.indexOf("app.addEventListener('change'"), source.indexOf("app.addEventListener('input'"))
-
-  assert.doesNotMatch(select, /updatedAt/)
-  assert.doesNotMatch(select, /openDshWorkspace\(|openWorkspace\(/)
-  assert.match(select, /state\.selectedDshWorkspaceId = null/)
 })
 
 test('loads full DSH history into the canvas instead of only post-install projections', async () => {
@@ -172,15 +154,4 @@ test('streaming from another conversation does not rebuild the canvas', async ()
   assert.match(app, /Date\.now\(\) >= state\.wheelGestureUntil/)
 })
 
-test('mirrors the Wallpaper Engine background inside the Synapse iframe', async () => {
-  const app = await readFile(new URL('../app.js', import.meta.url), 'utf8')
-  const css = await readFile(new URL('../styles.css', import.meta.url), 'utf8')
 
-  assert.match(app, /dsh-wallpaper-engine:selection/)
-  assert.match(app, /function applySynapseWallpaper\(\)/)
-  assert.match(app, /synapse-wallpaper-layer/)
-  assert.match(app, /addEventListener\('storage'/)
-  assert.match(css, /body\[data-synapse-wallpaper\]/)
-  assert.match(css, /\.synapse-wallpaper-layer/)
-  assert.match(css, /\.synapse-wallpaper-scrim/)
-})

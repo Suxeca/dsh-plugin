@@ -174,14 +174,9 @@ window.__ModuleLoader__.load({
           void fetch('/synapse/api/sessions/sync', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessions, removedSessionIds, archivedSessionIds }) }).catch(() => {})
         })
       }
-      const syncTheme = () => {
-        const dark = typeof document !== 'undefined' && document.body?.hasAttribute?.('data-ds-dark-theme') === true
-        send('synapse:theme', { dark })
-      }
       const syncCurrentSession = () => {
         syncSessions()
         syncLiveSessions()
-        syncTheme()
         if (!overlay.hidden) {
           send('synapse:workspaces', { workspaces: workspaceSnapshot(ctx) })
           send('synapse:current-session', { session: currentSession(ctx) })
@@ -273,12 +268,6 @@ window.__ModuleLoader__.load({
         }
       }
       const onKeyDown = event => { if (event.key === 'Escape' && !overlay.hidden) close() }
-      const themeObserver = typeof MutationObserver === 'undefined'
-        ? null
-        : new MutationObserver(() => syncTheme())
-      if (themeObserver !== null && document.body) {
-        themeObserver.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
-      }
       const unsubscribeSessions = ctx.sessions.list.subscribe(syncCurrentSession)
       const unsubscribeWorkspaces = ctx.workspaces.list.subscribe(syncCurrentSession)
       dialogButton.addEventListener('click', close)
@@ -292,7 +281,6 @@ window.__ModuleLoader__.load({
         frame.removeEventListener('load', onFrameLoad)
         window.removeEventListener('message', onMessage)
         window.removeEventListener('keydown', onKeyDown)
-        themeObserver?.disconnect()
         unsubscribeSessions()
         unsubscribeWorkspaces()
         for (const unsubscribe of liveUnsubscribers.values()) unsubscribe()

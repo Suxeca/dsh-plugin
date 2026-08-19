@@ -9,9 +9,8 @@ button.primary { border-color: #111827; background: #111827; color: #fff; }
 button.primary:hover { border-color: #000; background: #000; color: #fff; }
 .synapse-shell { --sidebar-width: 280px; --sidebar-half: 140px; height: 100vh; display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); grid-template-rows: 42px minmax(0, 1fr); overflow: hidden; }
 .synapse-shell.sidebar-collapsed { --sidebar-width: 56px; --sidebar-half: 28px; }
-.topbar { position: relative; grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 16px; border: 0; background: #fff; }
+.topbar { position: relative; grid-column: 2; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 16px; border: 0; background: #fff; }
 .brand, .top-actions, .view-switch, .thread-card-head, .thread-meta, .detail-actions, .compare-title { display: flex; align-items: center; }
-.topbar-spacer { flex: 1; }
 .sidebar-brand-row { box-sizing: border-box; display: flex; align-items: center; gap: 8px; height: 60px; flex: none; margin-bottom: 8px; padding: 8px 0 8px 4px; overflow: hidden; }
 .brand { gap: 8px; min-width: 0; flex: 1; }
 .brand::before { width: 31px; height: 26px; flex: none; content: ''; background: center / contain no-repeat url('/synapse/deepseek-mark.svg'); }
@@ -22,12 +21,12 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 .sidebar-toggle:hover { border: 0; background: #eef0f2; color: #374151; }
 .sidebar-toggle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
 .top-actions { gap: 10px; }
-.view-switch { gap: 2px; padding: 3px; border: 1px solid #d1d5db; border-radius: 999px; background: rgba(255,255,255,.96); }
+.view-switch { position: fixed; z-index: 80; top: 12px; left: 50%; gap: 2px; padding: 3px; transform: translateX(-50%); border: 1px solid #d1d5db; border-radius: 999px; background: rgba(255,255,255,.96); }
 .view-switch button { min-height: 28px; border: 0; border-radius: 999px; background: transparent; padding: 0 11px; color: #64748b; font-size: 12px; font-weight: 650; }
 .view-switch button:hover { background: #e5e7eb; color: #111827; }
 .view-switch button.active { background: #111827; color: #fff; }
 .view-switch button:focus-visible { outline: 2px solid #111827; outline-offset: 2px; }
-.canvas-controls { display: flex; align-items: center; gap: 5px; }
+.canvas-controls { position: fixed; z-index: 80; top: 14px; right: 16px; display: flex; align-items: center; gap: 5px; }
 .canvas-controls button { min-width: 32px; padding: 0 8px; font-size: 12px; }
 .canvas-controls span { min-width: 42px; color: #64748b; font-size: 12px; text-align: center; }
 .sidebar { grid-row: 1 / -1; display: flex; flex-direction: column; gap: 0; min-height: 0; padding: 6px 12px; border-right: 1px solid #e5e7eb; background: #f8f9fa; }
@@ -87,7 +86,7 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 .sidebar-collapsed .brand { display: none; }
 .sidebar-collapsed .sidebar-toggle { width: 36px; height: 36px; min-height: 36px; color: #111827; }
 .sidebar-collapsed .new-workspace { width: 36px; height: 36px; min-height: 36px; margin: 0 0 12px; border-color: transparent; background: transparent; padding: 0; }
-.sidebar-collapsed .new-workspace span, .sidebar-collapsed .workspace-label, .sidebar-collapsed .sidebar-heading, .sidebar-collapsed .thread-tree { display: none; }
+.sidebar-collapsed .new-workspace span, .sidebar-collapsed .workspace-label, .sidebar-collapsed .sidebar-heading, .sidebar-collapsed .thread-tree, .sidebar-collapsed .session-library { display: none; }
 .status-message { position: absolute; z-index: 6; top: 12px; right: 16px; display: flex; align-items: center; gap: 10px; max-width: 400px; padding: 9px 10px 9px 13px; border: 1px solid #fecaca; border-radius: 8px; background: #fef2f2; color: #991b1b; font-size: 12px; box-shadow: 0 3px 10px rgba(127,29,29,.12); }
 .status-message span { flex: 1; line-height: 1.5; }
 .status-message button { display: grid; width: 22px; height: 22px; flex: none; place-items: center; border: 0; border-radius: 50%; background: transparent; padding: 0; color: #b91c1c; font-size: 15px; line-height: 1; }
@@ -242,148 +241,3 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 @media (max-width: 760px) { .synapse-shell { --sidebar-width: 200px; --sidebar-half: 100px; } .synapse-shell.sidebar-collapsed { --sidebar-width: 56px; --sidebar-half: 28px; } .sidebar { padding: 6px 10px; } .detail-head { display: grid; gap: 12px; padding: 22px 18px 14px; } .detail-scroll { padding: 16px 18px 20px; } .message-composer { padding: 12px 18px 16px; } .message-user { max-width: 92%; } .compare-view { padding: 26px 18px; } .compare-columns { grid-template-columns: 1fr; } .topbar { padding: 0 10px; } .brand strong { display: none; } }
 @media (max-width: 560px) { .synapse-shell { min-width: 0; grid-template-columns: 1fr; } .sidebar { display: none; } .topbar, .main-stage { grid-column: 1; } .view-switch { left: 50%; } .view-switch button { padding: 0 7px; } .top-actions > button { font-size: 11px; padding: 0 7px; } .thread-card { width: 280px; } }
 
-/* ── Wallpaper Engine mirror inside the Synapse iframe ───────────
-   Layering without negative z-index (negative z-index is unreliable inside an
-   iframe because the body background can paint over it):
-     .synapse-wallpaper-layer  -> z-index: 0 (bottom)
-     .synapse-wallpaper-scrim  -> z-index: 1 (over the wallpaper, under UI)
-     .synapse-shell            -> z-index: 2 (the actual app)
-   The recipe mirrors dsh-plugin-wallpaper-engine's native liquid-glass look. */
-body[data-synapse-wallpaper] { background: transparent; }
-.synapse-wallpaper-layer { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
-.synapse-wallpaper-layer .synapse-wallpaper-media {
-  width: 100%; height: 100%; object-fit: cover; display: block; border: 0;
-  background: transparent;
-  filter: blur(var(--synapse-we-wallpaper-blur, 0px));
-  transform: scale(calc(1 + var(--synapse-we-wallpaper-blur, 0px) * 0.006)) scaleX(var(--synapse-we-flip, 1));
-  transform-origin: center;
-}
-.synapse-wallpaper-scrim { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
-body[data-synapse-wallpaper] .main-stage { background: transparent; }
-body[data-synapse-wallpaper] .canvas-viewport { background: rgba(255,255,255,.12); }
-body[data-synapse-wallpaper] .canvas-tabs { background: transparent; }
-body[data-synapse-wallpaper] .sidebar { background: rgba(248,249,250,.18); }
-body[data-synapse-wallpaper] .topbar { background: rgba(255,255,255,.15); }
-body[data-synapse-wallpaper] .synapse-shell { position: relative; z-index: 2; }
-
-/* Liquid-glass recipe shared by every surface (mirrors the native plugin). */
-body[data-synapse-wallpaper] .sidebar,
-body[data-synapse-wallpaper] .topbar,
-body[data-synapse-wallpaper] .canvas-tabs,
-body[data-synapse-wallpaper] .thread-card,
-body[data-synapse-wallpaper] .detail-view,
-body[data-synapse-wallpaper] .message-composer,
-body[data-synapse-wallpaper] .status-message {
-  background-image: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.05) 38%, rgba(255,255,255,.02));
-  -webkit-backdrop-filter: blur(var(--synapse-we-blur, 16px)) saturate(var(--synapse-we-saturate, 1.8)) brightness(var(--synapse-we-glass-brightness, 1.04)) contrast(1.01);
-  backdrop-filter: blur(var(--synapse-we-blur, 16px)) saturate(var(--synapse-we-saturate, 1.8)) brightness(var(--synapse-we-glass-brightness, 1.04)) contrast(1.01);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.32),
-    inset 0 -1px 0 rgba(255,255,255,.08),
-    inset 0 0 0 .5px rgba(255,255,255,.08),
-    0 12px 40px rgba(0,0,0,.12);
-}
-
-/* Inner chrome: lighter translucent fills so text stays readable. */
-body[data-synapse-wallpaper] .thread-card { background: rgba(255,255,255,.42); }
-body[data-synapse-wallpaper] .detail-view { background: rgba(255,255,255,.32); }
-body[data-synapse-wallpaper] .message-composer { background: rgba(255,255,255,.35); }
-body[data-synapse-wallpaper] .detail-scroll { background: transparent; }
-body[data-synapse-wallpaper] .message-body,
-body[data-synapse-wallpaper] .process-records,
-body[data-synapse-wallpaper] .process-entry { background: transparent; }
-
-/* Messages: bubbles get the glass treatment, not the whole list. */
-body[data-synapse-wallpaper] .message-user,
-body[data-synapse-wallpaper] .message-assistant,
-body[data-synapse-wallpaper] .message-error {
-  background-image: linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.04) 38%, rgba(255,255,255,.01));
-  -webkit-backdrop-filter: blur(var(--synapse-we-blur, 16px)) saturate(var(--synapse-we-saturate, 1.8)) brightness(var(--synapse-we-glass-brightness, 1.04)) contrast(1.01);
-  backdrop-filter: blur(var(--synapse-we-blur, 16px)) saturate(var(--synapse-we-saturate, 1.8)) brightness(var(--synapse-we-glass-brightness, 1.04)) contrast(1.01);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.28),
-    inset 0 -1px 0 rgba(255,255,255,.06),
-    inset 0 0 0 .5px rgba(255,255,255,.06);
-}
-body[data-synapse-wallpaper] .message-user { background-color: rgba(52,118,246,.18); }
-body[data-synapse-wallpaper] .message-assistant { background-color: rgba(255,255,255,.28); }
-body[data-synapse-wallpaper] .message-error { background-color: rgba(239,68,68,.18); }
-
-/* Sidebar list items and cards: keep subtle translucent hover/active states. */
-body[data-synapse-wallpaper] .session-item:hover { background: rgba(255,255,255,.35); }
-body[data-synapse-wallpaper] .session-item.loaded { background: rgba(52,118,246,.16); border-color: rgba(52,118,246,.4); }
-body[data-synapse-wallpaper] .empty-canvas { background: transparent; }
-body[data-synapse-wallpaper] .draft-card,
-body[data-synapse-wallpaper] .draft-branch-form { background: transparent; }
-
-/* ── Dark-theme wallpaper mode: white text + deeper glass (mirrors DSH dark). ── */
-body[data-synapse-dark][data-synapse-wallpaper] {
-  color: #f3f4f6;
-}
-body[data-synapse-dark][data-synapse-wallpaper] .sidebar,
-body[data-synapse-dark][data-synapse-wallpaper] .topbar,
-body[data-synapse-dark][data-synapse-wallpaper] .canvas-tabs {
-  background: rgba(17,24,39,.25);
-  color: #f3f4f6;
-}
-body[data-synapse-dark][data-synapse-wallpaper] .thread-card,
-body[data-synapse-dark][data-synapse-wallpaper] .detail-view,
-body[data-synapse-dark][data-synapse-wallpaper] .message-composer {
-  background: rgba(17,24,39,.5);
-  color: #f3f4f6;
-}
-body[data-synapse-dark][data-synapse-wallpaper] .thread-card,
-body[data-synapse-dark][data-synapse-wallpaper] .detail-view,
-body[data-synapse-dark][data-synapse-wallpaper] .message-composer,
-body[data-synapse-dark][data-synapse-wallpaper] .sidebar,
-body[data-synapse-dark][data-synapse-wallpaper] .topbar,
-body[data-synapse-dark][data-synapse-wallpaper] .canvas-tabs {
-  background-image: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02) 38%, rgba(255,255,255,0));
-  -webkit-backdrop-filter: blur(var(--synapse-we-blur, 16px)) saturate(var(--synapse-we-saturate, 1.8)) brightness(1.04) contrast(1.01);
-  backdrop-filter: blur(var(--synapse-we-blur, 16px)) saturate(var(--synapse-we-saturate, 1.8)) brightness(1.04) contrast(1.01);
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.12),
-    inset 0 -1px 0 rgba(255,255,255,.04),
-    inset 0 0 0 .5px rgba(255,255,255,.06);
-}
-body[data-synapse-dark][data-synapse-wallpaper] .message-user { background-color: rgba(52,118,246,.35); }
-body[data-synapse-dark][data-synapse-wallpaper] .message-assistant { background-color: rgba(255,255,255,.08); }
-body[data-synapse-dark][data-synapse-wallpaper] .message-error { background-color: rgba(239,68,68,.28); }
-body[data-synapse-dark][data-synapse-wallpaper] .session-item { color: #e5e7eb; }
-body[data-synapse-dark][data-synapse-wallpaper] .session-item:hover { background: rgba(255,255,255,.12); }
-body[data-synapse-dark][data-synapse-wallpaper] .session-item.loaded { background: rgba(52,118,246,.25); border-color: rgba(96,165,250,.5); }
-body[data-synapse-dark][data-synapse-wallpaper] .session-group-title,
-body[data-synapse-dark][data-synapse-wallpaper] .sidebar-heading,
-body[data-synapse-dark][data-synapse-wallpaper] .sidebar-hint { color: rgba(255,255,255,.65); }
-body[data-synapse-dark][data-synapse-wallpaper] .thread-card .thread-title,
-body[data-synapse-dark][data-synapse-wallpaper] .thread-card .thread-meta,
-body[data-synapse-dark][data-synapse-wallpaper] .thread-answer,
-body[data-synapse-dark][data-synapse-wallpaper] .message-body,
-body[data-synapse-dark][data-synapse-wallpaper] .message-role,
-body[data-synapse-dark][data-synapse-wallpaper] .detail-head,
-body[data-synapse-dark][data-synapse-wallpaper] .detail-subtitle { color: #f3f4f6; }
-body[data-synapse-dark][data-synapse-wallpaper] button:not(.primary) { color: #e5e7eb; background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18); }
-body[data-synapse-dark][data-synapse-wallpaper] button:not(.primary):hover { background: rgba(255,255,255,.16); color: #fff; }
-
-/* ── Floating chrome: tabs + canvas controls melt into the wallpaper ── */
-body[data-synapse-wallpaper] .canvas-tabs {
-  background: transparent;
-  border-bottom-color: rgba(255,255,255,.18);
-}
-body[data-synapse-wallpaper] .canvas-tabs button { color: rgba(255,255,255,.72); text-shadow: 0 1px 2px rgba(0,0,0,.25); }
-body[data-synapse-wallpaper] .canvas-tabs button:hover { color: #fff; }
-body[data-synapse-wallpaper] .canvas-tabs button.active { color: #fff; border-bottom-color: #fff; }
-body[data-synapse-wallpaper] .canvas-controls {
-  padding: 4px 6px; border-radius: 999px;
-  background: rgba(255,255,255,.18);
-  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
-  border: 1px solid rgba(255,255,255,.22);
-  box-shadow: 0 2px 12px rgba(0,0,0,.12);
-}
-body[data-synapse-wallpaper] .canvas-controls button,
-body[data-synapse-wallpaper] .canvas-controls span { color: rgba(255,255,255,.9); background: transparent; border-color: transparent; text-shadow: 0 1px 2px rgba(0,0,0,.2); }
-body[data-synapse-wallpaper] .canvas-controls button:hover { background: rgba(255,255,255,.22); color: #fff; }
-body[data-synapse-dark][data-synapse-wallpaper] .canvas-tabs { border-bottom-color: rgba(255,255,255,.12); }
-body[data-synapse-dark][data-synapse-wallpaper] .canvas-controls { background: rgba(17,24,39,.35); border-color: rgba(255,255,255,.14); }
-body[data-synapse-dark][data-synapse-wallpaper] .canvas-controls button { color: rgba(255,255,255,.85); }
-body[data-synapse-dark][data-synapse-wallpaper] .canvas-controls button:hover { background: rgba(255,255,255,.15); }
