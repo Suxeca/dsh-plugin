@@ -1,2 +1,0 @@
-name: Router Opencode-Go (experimental)
-description: Task-aware routing for the opencode-go provider — spec (plan-first) for fixes, react (doer) for builds; full Standard tools after the first tool call. Persona/guide logic mirrors router-standard; scoped to provider "opencode-go".

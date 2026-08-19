@@ -24,3 +24,7 @@ PLUGIN-HANDOFF.md
 
 # 本地打包产物（发布时由 CI prepublishOnly 重新生成）
 *.tgz
+
+# 运行时产物：agents team 会话状态 / vision-toolkit 制品（非源码）
+.agent-teams/
+.dsh-vision-toolkit/

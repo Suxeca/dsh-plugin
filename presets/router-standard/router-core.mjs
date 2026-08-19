@@ -59,7 +59,8 @@ const WEAK_FLASH =
   'You are a helpful assistant.\n'
   + 'Before acting, decide the task type (build or fix) and adopt the matching '
   + 'style: build → hands-on production; fix → inspect-and-plan.\n'
-  + 'Before acting, briefly review what you have already done in this session and continue from where you left off; do not repeat completed steps. Do not run environment checks (echo, whoami, uname, node --version, date) or exhaustive grep/glob scans.'
+  + 'Before acting, briefly review what you have already done in this session and continue from where you left off; do not repeat completed steps. Do not run environment checks (echo, whoami, uname, node --version, date) or exhaustive grep/glob scans.\n'
+  + 'Think deeply first, then produce.'
 
 /** Complexity heuristic: long or architecturally-worded tasks are COMPLEX.
  *  Simple tasks get fast-convergence guidance; complex tasks get deep
@@ -94,11 +95,16 @@ export function personaFor(mode, modelId) {
   }
 }
 
-/** First-turn core tools (shell added dynamically by the plugin). */
+/** First-turn core tools (shell added dynamically by the plugin).
+ *  v0.2.0: the weak (internal-routing) band gets the RL-shape surface —
+ *  shell + str_replace_editor — per the interface-restoration measurement
+ *  (100% action at 18–29K reasoning chars vs ~25% / 73–101K on the
+ *  read/write/edit surface, official API, 2026-08-15). */
 export function coreFor(mode) {
   switch (bandOf(mode)) {
     case 'spec': return ['read', 'edit', 'glob', 'grep'] // read-first
     case 'transition': return ['read', 'edit', 'write', 'glob', 'grep'] // union
+    case 'weak': return ['str_replace_editor'] // RL shape: shell + editor
     default: return ['read', 'write', 'edit'] // write-first
   }
 }
@@ -148,7 +154,11 @@ export function sessionMode(session) {
 
 export function extractText(data) {
   if (!data) return ''
-  const content = Array.isArray(data.content) ? data.content : []
+  // 防御性解包：插件/工具生成的 user/message 偶有 `data.message` 嵌套形状
+  // （如注入器 startIngest 的 seed），直接读 data.content 会得到空串 →
+  // 构建/修复任务被误判 weak（router-standard issue #1）。
+  const payload = data && typeof data.message === 'object' && data.message !== null ? data.message : data
+  const content = Array.isArray(payload.content) ? payload.content : []
   return content.map((c) => (typeof c === 'string' ? c : (c.text ?? ''))).join(' ')
 }
 
