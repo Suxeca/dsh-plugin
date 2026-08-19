@@ -169,7 +169,9 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     if (!open) return
     setQuery('')
     setShowArchived(false)
-    setSearching(false)
+    // Default to search mode: the palette opens with the filter focused so
+    // typing immediately filters conversations (search-as-you-type).
+    setSearching(true)
     setRenameId(null)
     setError(null)
     setConfiguring(false)
