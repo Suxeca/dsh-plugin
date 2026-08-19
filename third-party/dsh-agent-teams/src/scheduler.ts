@@ -6,6 +6,14 @@
  * scheduler closes the same loop without keeping a polling turn alive: every
  * idle edge and every task-graph mutation attempts one atomic claim and wakes
  * the selected durable member.
+ *
+ * Retry guard: a member that goes idle while still owning an open task lost
+ * the turn that was executing it (model stopped early, LLM request failed —
+ * e.g. provider quota/rate-limit exhaustion, interrupt settlement, or process
+ * restart). The scheduler retries that task with a fresh capability, but only
+ * up to {@link MAX_AUTO_RETRY_ATTEMPTS}; past that the task is marked `failed`
+ * so a persistently failing member (no quota, broken provider route) cannot
+ * keep the scheduler in an unbounded request loop.
  * @module dsh-agent-teams/scheduler
  */
 
@@ -27,6 +35,9 @@ import {
   writeTeam,
 } from './state.ts'
 import type { TeamMember, TeamTask } from './types.ts'
+
+/** Retries granted to one open task whose member keeps losing its turn, before the task is failed out. */
+export const MAX_AUTO_RETRY_ATTEMPTS = 5
 
 export interface SchedulerConfig {
   readonly stateDir: string
@@ -179,29 +190,44 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
           // An idle/ready member that still owns an open task lost the turn
           // that was executing it (model stopped early, interrupt settlement,
           // or process restart). Retry that task with a fresh capability
-          // instead of permanently treating the durable claim as "busy".
+          // instead of permanently treating the durable claim as "busy" —
+          // but only up to MAX_AUTO_RETRY_ATTEMPTS: a member whose model
+          // route keeps failing (exhausted quota/rate limit, dead provider)
+          // would otherwise drive an unbounded retry request loop.
           const task = ownedOpenTask(fresh.tasks, currentMember.name)
-            ?? nextReadyTask(fresh.tasks, currentMember.name)
-          if (task === undefined) {
+          if (task !== undefined && (task.attempt ?? 1) > MAX_AUTO_RETRY_ATTEMPTS) {
+            task.status = 'failed'
+            task.output = `Auto-failed after ${task.attempt} attempts: member "${currentMember.name}" kept losing its turn (persistent LLM/provider failure). Review the member's model route or retry manually.`
+            task.attemptId = undefined
+            task.updatedAt = Date.now()
+            if (currentMember.status !== 'idle') currentMember.status = 'idle'
+            await writeTeam(stateRoot, fresh)
+            ctx.logger.warn(
+              `agent-teams: task ${task.id} auto-failed after ${task.attempt} attempts (member ${currentMember.name} keeps losing its turn); no further auto-retry`,
+            )
+            return undefined
+          }
+          const retried = task ?? nextReadyTask(fresh.tasks, currentMember.name)
+          if (retried === undefined) {
             if (currentMember.status !== 'idle') {
               currentMember.status = 'idle'
               await writeTeam(stateRoot, fresh)
             }
             return undefined
           }
-          const previousAssignee = task.assignee
-          const attemptId = beginTaskAttempt(task, currentMember.name)
+          const previousAssignee = retried.assignee
+          const attemptId = beginTaskAttempt(retried, currentMember.name)
           currentMember.status = 'working'
           await writeTeam(stateRoot, fresh)
           return {
-            taskId: task.id,
+            taskId: retried.id,
             memberName: currentMember.name,
             memberId: currentMember.id,
-            attempt: task.attempt ?? 1,
+            attempt: retried.attempt ?? 1,
             attemptId,
             previousAssignee,
-            subject: task.subject,
-            description: task.description,
+            subject: retried.subject,
+            description: retried.description,
           }
         })
         if (ticket === undefined) return

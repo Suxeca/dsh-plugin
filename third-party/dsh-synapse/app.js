@@ -231,11 +231,6 @@ function currentDshThread(threads = mapThreads()) {
   return typeof id === 'string' ? threads.find(thread => thread.dshSessionId === id) : undefined
 }
 
-function workspaceChoices() {
-  if (state.dshWorkspaces.length > 0) return state.dshWorkspaces.map(workspace => ({ ...workspace, source: 'dsh' }))
-  return state.summaries.map(workspace => ({ id: workspace.id, title: workspace.title, path: workspace.cwd, sessionIds: [], source: 'projection' }))
-}
-
 async function refreshSummaries({ renderAfter = true } = {}) {
   const before = JSON.stringify(state.summaries)
   const body = await api('/synapse/api/workspaces')
@@ -844,12 +839,10 @@ function render() {
   const workspace = state.workspace
   const threads = mapThreads()
   const view = state.mode === 'thread' ? renderThread() : renderCanvas()
-  const choices = workspaceChoices()
-  const selectedWorkspaceId = state.selectedDshWorkspaceId ?? workspace?.id
   const canvasControls = state.mode === 'canvas' && (threads.length > 0 || state.draft?.kind === 'new') ? `<div class="canvas-controls"><button data-action="layout">整理节点</button><button data-action="focus-active" title="定位到当前会话">定位</button><button data-action="zoom-out" aria-label="缩小">-</button><span>${Math.round(state.zoom * 100)}%</span><button data-action="zoom-in" aria-label="放大">+</button><button data-action="clear-map" title="卸载所有已载入会话">清空地图</button></div>` : ''
   const detailAvailable = currentThread() !== null
   const canvasTabs = `<nav class="canvas-tabs" aria-label="会话地图视图"><button class="${state.mode === 'canvas' ? 'active' : ''}" data-action="show-canvas">地图</button><button class="${state.mode === 'thread' ? 'active' : ''}" data-action="show-thread" data-thread="${state.activeId ?? ''}" ${detailAvailable ? '' : 'disabled'}>详情</button></nav>`
-  app.innerHTML = `<main class="synapse-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}"><aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><svg class="brand-mark" aria-hidden="true" viewBox="0 0 32 32" fill="none"><path d="M9 10.5 16 7l7 3.5M9 10.5v8L16 22m0-15v15m7-11.5v8L16 22"/><circle cx="9" cy="10" r="2.5"/><circle cx="23" cy="10" r="2.5"/><circle cx="16" cy="23" r="2.5"/></svg><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.25"/><path d="M6 2v12"/></svg></button></div><button class="new-workspace" type="button" data-action="create-session" ${state.draft !== null ? 'disabled' : ''}><svg class="new-session-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v6.5M4.75 8h6.5"/></svg><span>新会话</span></button><div class="sidebar-heading"><span>历史对话</span><span class="sidebar-hint">拖到右侧地图加载</span></div>${renderSessionLibrary()}</aside><header class="topbar"><div class="topbar-spacer"></div><div class="view-switch" role="group" aria-label="视图切换"><button data-action="close" type="button" aria-pressed="false">对话</button><button class="active" type="button" aria-pressed="true">会话地图</button></div>${canvasControls}</header><section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">×</button></div>` : ''}${canvasTabs}${view}</section></main>`
+  app.innerHTML = `<main class="synapse-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}"><aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><svg class="brand-mark" aria-hidden="true" viewBox="0 0 32 32" fill="none"><path d="M9 10.5 16 7l7 3.5M9 10.5v8L16 22m0-15v15m7-11.5v8L16 22"/><circle cx="9" cy="10" r="2.5"/><circle cx="23" cy="10" r="2.5"/><circle cx="16" cy="23" r="2.5"/></svg><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.25"/><path d="M6 2v12"/></svg></button></div><button class="new-workspace" type="button" data-action="create-session" ${state.draft !== null ? 'disabled' : ''}><svg class="new-session-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v6.5M4.75 8h6.5"/></svg><span>新会话</span></button><div class="sidebar-heading"><span>历史对话</span><span class="sidebar-hint">拖到右侧地图加载</span></div>${renderSessionLibrary()}</aside><header class="topbar"><div class="view-switch" role="group" aria-label="视图切换"><button data-action="close" type="button" aria-pressed="false">对话</button><button class="active" type="button" aria-pressed="true">会话地图</button></div>${canvasControls}</header><section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">×</button></div>` : ''}${canvasTabs}${view}</section></main>`
   installDragging()
   for (const [threadId, scrollTop] of cardScrollTops) {
     const answer = app.querySelector(`.thread-card[data-thread="${CSS.escape(threadId)}"] .thread-answer`)
@@ -1123,18 +1116,6 @@ app.addEventListener('drop', async event => {
   }
 })
 
-app.addEventListener('change', event => {
-  const select = event.target.closest('[data-action="select-workspace"]')
-  if (!(select instanceof HTMLSelectElement)) return
-  const choice = workspaceChoices().find(item => item.id === select.value)
-  if (choice?.source === 'dsh') {
-    state.selectedDshWorkspaceId = choice.id
-    if (canReplaceView()) render()
-  } else if (choice !== undefined) {
-    state.selectedDshWorkspaceId = null
-    if (canReplaceView()) render()
-  }
-})
 app.addEventListener('input', event => { const input = event.target; if (input instanceof HTMLTextAreaElement && input.closest('[data-draft]') && state.draft !== null) state.draft.text = input.value })
 app.addEventListener('submit', event => {
   const form = event.target
@@ -1167,10 +1148,6 @@ window.addEventListener('message', event => {
   }
   if (data.type === 'synapse:map-closed') {
     state.mapVisible = false
-  }
-  if (data.type === 'synapse:theme') {
-    const dark = data.dark === true
-    document.body.toggleAttribute('data-synapse-dark', dark)
   }
   if (data.type === 'synapse:workspaces') {
     if (!state.mapVisible) return
@@ -1233,98 +1210,4 @@ async function pollProjection() {
 }
 window.setInterval(() => { void pollProjection() }, 2_000)
 
-// ── Wallpaper Engine background mirror (lightweight) ─────────────
-// The Synapse page runs in a same-origin iframe, so it can read the wallpaper
-// plugin's persisted selection and serve the same inventory. This draws a
-// lightweight background layer (video/image/web) + scrim behind the map,
-// mirroring the native DSH wallpaper without pulling in the full React picker.
-const WALLPAPER_SETTINGS_KEY = 'dsh-wallpaper-engine:selection'
-const WALLPAPER_INVENTORY_URL = '/wallpaper-engine/inventory'
-const WALLPAPER_LAYER_ID = 'dsh-synapse-wallpaper-layer'
-const WALLPAPER_SCRIM_ID = 'dsh-synapse-wallpaper-scrim'
 
-let wallpaperInventory = null
-
-async function loadWallpaperInventory() {
-  if (wallpaperInventory !== null) return wallpaperInventory
-  try {
-    const res = await fetch(WALLPAPER_INVENTORY_URL, { cache: 'no-store' })
-    if (!res.ok) return null
-    wallpaperInventory = await res.json()
-    return wallpaperInventory
-  } catch { return null }
-}
-
-function wallpaperSelection() {
-  try {
-    const raw = localStorage.getItem(WALLPAPER_SETTINGS_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch { return null }
-}
-
-function applySynapseWallpaper() {
-  const sel = wallpaperSelection()
-  const existingLayer = document.getElementById(WALLPAPER_LAYER_ID)
-  const existingScrim = document.getElementById(WALLPAPER_SCRIM_ID)
-  if (!sel?.id) {
-    existingLayer?.remove()
-    existingScrim?.remove()
-    document.body.removeAttribute('data-synapse-wallpaper')
-    return
-  }
-  void loadWallpaperInventory().then(inv => {
-    const wall = inv?.wallpapers?.find(w => w.id === sel.id)
-    if (!wall?.playable || !wall.media) return
-    const url = wall.media
-    const type = wall.type
-    let layer = document.getElementById(WALLPAPER_LAYER_ID)
-    if (!layer) {
-      layer = document.createElement('div')
-      layer.id = WALLPAPER_LAYER_ID
-      layer.className = 'synapse-wallpaper-layer'
-      // prepend as the first child of body; content sits above it via z-index.
-      document.body.prepend(layer)
-    }
-    const key = type + '\u0000' + url
-    if (layer.dataset.weKey !== key) {
-      layer.innerHTML = ''
-      const media = type === 'video' ? document.createElement('video')
-        : type === 'image' ? document.createElement('img')
-        : document.createElement('iframe')
-      // Mirror the wallpaper plugin's fit rule: custom uploads (id prefix "up-")
-      // use the user-chosen object-fit (cover/contain/center/fill); Wallpaper
-      // Engine native media always keeps cover.
-      const isCustom = typeof sel.id === 'string' && sel.id.indexOf('up-') === 0
-      media.className = 'synapse-wallpaper-media' + (isCustom ? ' synapse-wallpaper-media--fit' : '')
-      if (type === 'video') { media.autoplay = true; media.loop = true; media.muted = true; media.setAttribute('playsinline', '') }
-      if (type === 'image') { media.alt = ''; media.draggable = false }
-      if (type !== 'video' && type !== 'image') { media.setAttribute('frameborder', '0'); media.setAttribute('scrolling', 'no') }
-      layer.appendChild(media)
-      layer.dataset.weKey = key
-    }
-    let scrim = document.getElementById(WALLPAPER_SCRIM_ID)
-    if (!scrim) {
-      scrim = document.createElement('div')
-      scrim.id = WALLPAPER_SCRIM_ID
-      scrim.className = 'synapse-wallpaper-scrim'
-      document.body.appendChild(scrim)
-    }
-    const scrimAlpha = typeof sel.scrim === 'number' ? sel.scrim : 0.25
-    scrim.style.background = `rgba(0,0,0,${scrimAlpha})`
-    const blur = typeof sel.blur === 'number' ? sel.blur : 16
-    document.body.style.setProperty('--synapse-we-blur', blur + 'px')
-    document.body.style.setProperty('--synapse-we-wallpaper-blur', (typeof sel.wallpaperBlur === 'number' ? sel.wallpaperBlur : 0) + 'px')
-    document.body.style.setProperty('--synapse-we-flip', sel.flip ? '-1' : '1')
-    // Mirror the native plugin's saturation curve: 1.15 + blur*0.028.
-    document.body.style.setProperty('--synapse-we-saturate', String(1.15 + blur * 0.028))
-    document.body.style.setProperty('--synapse-we-glass-brightness', '1.04')
-    // User-chosen fit mode for custom uploads (cover/contain/center/fill).
-    document.body.style.setProperty('--synapse-we-object-fit', ['cover', 'contain', 'center', 'fill'].includes(sel.objectFit) ? sel.objectFit : 'cover')
-    document.body.setAttribute('data-synapse-wallpaper', 'on')
-  }).catch(() => {})
-}
-
-applySynapseWallpaper()
-window.addEventListener('storage', event => {
-  if (event.key === WALLPAPER_SETTINGS_KEY) applySynapseWallpaper()
-})
