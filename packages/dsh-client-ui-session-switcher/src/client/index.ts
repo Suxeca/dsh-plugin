@@ -60,6 +60,54 @@ function hasSelection(target: EventTarget | null): boolean {
     && target.selectionStart !== target.selectionEnd
 }
 
+/** Write a new value into a controlled input/textarea and notify React. */
+function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+    ?? Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+  setter?.call(el, value)
+  el.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
+/**
+ * Claude-Code-CLI-style line deletion: remove the text before the caret on
+ * the current line (or the whole previous line when the caret already sits
+ * at a line start). Holding the key (auto-repeat) deletes repeatedly.
+ * Selection takes priority — a non-empty selection is deleted first, which
+ * is the standard editable behavior.
+ */
+function deleteLineBeforeCaret(target: EventTarget | null): void {
+  if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) {
+    // contentEditable is intentionally unsupported (DSH composer is a
+    // textarea); let the default handling proceed for other editable hosts.
+    return
+  }
+  const el = target
+  const value = el.value
+  const start = el.selectionStart ?? value.length
+  const end = el.selectionEnd ?? start
+  if (start === 0 && end === 0) return
+  if (end > start) {
+    // A selection is present: delete the selection (like typing over it).
+    setNativeValue(el, value.slice(0, start) + value.slice(end))
+    el.setSelectionRange(start, start)
+    return
+  }
+  // Find the current line start (after the previous newline).
+  const lineStart = value.lastIndexOf('\n', start - 1) + 1
+  if (lineStart < start) {
+    // Delete [lineStart, start): the current line's prefix before the caret.
+    setNativeValue(el, value.slice(0, lineStart) + value.slice(start))
+    el.setSelectionRange(lineStart, lineStart)
+    return
+  }
+  // Caret is at a line start: delete the WHOLE previous line including its
+  // trailing newline (the "previous line" the user asked for).
+  if (start === 0) return
+  const prevLineStart = value.lastIndexOf('\n', start - 2) + 1
+  setNativeValue(el, value.slice(0, prevLineStart) + value.slice(start))
+  el.setSelectionRange(prevLineStart, prevLineStart)
+}
+
 /** Toggle dsh-synapse's conversation-map view: click the opposite view
  *  switch button (`data-view="map"` ⇄ `data-view="dialog"`). No-op when the
  *  synapse view switcher is absent. */
@@ -195,6 +243,18 @@ export function apply(ctx: ClientContext): void {
         e.preventDefault()
         cancelPreview()
         openStore.close()
+      }
+      return
+    }
+
+    // Alt+U (input editing, Claude-Code-CLI style): delete the line before
+    // the caret in the focused editable. Holding the key auto-repeats the
+    // keydown, so each repeat deletes another segment/line. Outside an
+    // editable the key is left alone.
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'u') {
+      if (isEditableTarget(e.target)) {
+        e.preventDefault()
+        deleteLineBeforeCaret(e.target)
       }
       return
     }
