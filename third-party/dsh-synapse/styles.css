@@ -63,6 +63,8 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 .session-loaded { margin-left: auto; color: #3478f6; font-size: 10px; font-style: normal; }
 .session-unload { display: grid; width: 20px; height: 20px; flex: none; place-items: center; border: 0; border-radius: 50%; background: transparent; padding: 0; color: #94a3b8; font-size: 14px; line-height: 1; cursor: pointer; }
 .session-unload:hover { background: #fee2e2; color: #dc2626; }
+.session-group-toggle { margin: 2px 4px; border: 0; border-radius: 6px; background: transparent; padding: 4px 8px; color: #64748b; font-size: 11px; text-align: left; cursor: pointer; }
+.session-group-toggle:hover { background: #eef1f4; color: #1f2937; }
 .sidebar-hint { color: #9aa3af; font-size: 10px; font-weight: 400; }
 .main-stage.is-drag-target::after {
   content: '放到这里加载会话';
@@ -167,6 +169,12 @@ button.primary:hover { border-color: #000; background: #000; color: #fff; }
 .detail-head-actions button:hover { border-color: #b9c7d8; background: #f4f7fb; }
 .detail-head-actions button.primary { border-color: #3478f6; background: #3478f6; color: #fff; }
 .detail-head-actions button.primary:hover { background: #2563eb; }
+.detail-draft { margin: 18px 0 6px; padding: 14px 16px; border: 1px solid #dbe4ee; border-radius: 12px; background: #f6f9fc; }
+.detail-draft-label { margin-bottom: 8px; color: #64748b; font-size: 12px; font-weight: 600; }
+.detail-draft .draft-branch-form { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.detail-draft .draft-branch-form textarea { width: 100%; box-sizing: border-box; min-height: 88px; max-height: 240px; resize: vertical; border: 1px solid #d8dee8; border-radius: 8px; padding: 10px 12px; font: inherit; line-height: 1.5; color: #1f2937; background: #fff; }
+.detail-draft .draft-branch-form textarea:focus { outline: 2px solid #3478f6; outline-offset: 0; }
+.detail-draft .draft-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .detail-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; padding: 22px 38px 24px; }
 .note-empty { padding: 34px 25px; border: 1px dashed #cbd5df; border-radius: 10px; color: #8a97a8; font-size: 13px; text-align: center; }
 .message { padding: 13px 16px; border: 1px solid #e2e8f0; border-radius: 11px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.03); }

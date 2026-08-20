@@ -1,5 +1,23 @@
 const app = document.querySelector('#app')
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
+/** Generate a UUID v4 string. crypto.randomUUID only exists in secure contexts
+ * (localhost/HTTPS); LAN access over plain http (e.g. NetBird) falls back to
+ * getRandomValues, then to a timestamp+random id. */
+const makeId = () => {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  } catch { /* fall through */ }
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      const bytes = crypto.getRandomValues(new Uint8Array(16))
+      bytes[6] = (bytes[6] & 0x0f) | 0x40
+      bytes[8] = (bytes[8] & 0x3f) | 0x80
+      const hex = [...bytes].map(b => b.toString(16).padStart(2, '0')).join('')
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+    }
+  } catch { /* fall through */ }
+  return `id-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 const LEGACY_CARD_POSITIONS_KEY = 'dsh-synapse:card-positions'
 const CARD_POSITIONS_KEY = 'dsh-synapse:card-positions:v3'
 const savedBranchAnchors = (() => {
@@ -31,7 +49,7 @@ const loadedSessionsFromStorage = (() => {
 })()
 const state = {
   summaries: [], workspace: null, activeId: null, mode: 'canvas', zoom: 1, currentDsh: null, sidebarCollapsed: false,
-  dshWorkspaces: [], selectedDshWorkspaceId: null,
+  dshWorkspaces: [], selectedDshWorkspaceId: null, archivedSessionIds: [], sidebarSessionLimit: 3, sidebarExpanded: false, expandedWorkspaces: new Set(),
   historyBySession: new Map(), historyRequests: new Map(), pendingReplies: new Map(), pendingRpc: new Map(), liveReplies: new Map(),
   // Loaded-on-demand sessions: sessionId -> { messages, cachedAt, title }.
   // This is the module that drives the map; the left list is the source module.
@@ -47,17 +65,167 @@ const state = {
   wheelGestureUntil: 0,
 }
 
-function persistLoadedSessions() {
-  try { localStorage.setItem(LOADED_SESSIONS_KEY, JSON.stringify(Object.fromEntries(state.loadedSessions))) } catch { /* Private browsing may disable local storage. */ }
+let mapSyncTimer = 0
+/** Lightweight server map entry: metadata only, never the full message log.
+ * Full logs live in localStorage (and are re-fetched from DSH on demand), so
+ * cross-device map sync stays small enough for the server body limit. */
+function serverMapEntry(entry) {
+  return {
+    title: entry?.title ?? null,
+    parentId: entry?.parentId ?? null,
+    sourceSeedLength: Number.isSafeInteger(entry?.sourceSeedLength) ? entry.sourceSeedLength : null,
+  }
 }
 
-function cacheLoadedSession(sessionId, messages, title = null, parentId = null) {
+function persistLoadedSessions() {
+  try { localStorage.setItem(LOADED_SESSIONS_KEY, JSON.stringify(Object.fromEntries(state.loadedSessions))) } catch { /* Private browsing may disable local storage. */ }
+  // Push only lightweight metadata to the server so every device sees the same
+  // map. Debounced so rapid drag/unload operations coalesce into a single PUT.
+  if (mapSyncTimer !== 0) return
+  mapSyncTimer = window.setTimeout(() => {
+    mapSyncTimer = 0
+    const payload = Object.fromEntries([...state.loadedSessions.entries()].map(([sessionId, entry]) => [sessionId, serverMapEntry(entry)]))
+    void fetch('/synapse/api/map', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ map: payload }) }).catch(() => {})
+  }, 150)
+}
+
+/** Pull the server-authoritative map state and adopt it locally. */
+async function loadServerMap() {
+  // If we have a pending local push (debounced PUT not fired yet), the server
+  // does not know our latest local state yet. Skipping the pull avoids
+  // clobbering a brand-new local session with the older server snapshot; the
+  // pending PUT will publish it, and the next SSE event will sync it back.
+  if (mapSyncTimer !== 0) return false
+  const res = await fetch('/synapse/api/map', { cache: 'no-store' })
+  if (!res.ok) return false
+  const body = await res.json().catch(() => ({}))
+  const map = body?.map
+  if (map === null || typeof map !== 'object' || Array.isArray(map)) return false
+  const before = JSON.stringify(Object.fromEntries(state.loadedSessions))
+  // Server is authoritative for WHICH sessions are on the map. Merge its
+  // lightweight metadata into the local full-message cache: a session that is
+  // new here gets an empty message list and will be filled on demand (sync or
+  // drag) without the server ever carrying the heavy log.
+  const next = new Map()
+  for (const [sessionId, meta] of Object.entries(map)) {
+    const local = state.loadedSessions.get(sessionId)
+    next.set(sessionId, {
+      messages: Array.isArray(local?.messages) ? local.messages : [],
+      cachedAt: local?.cachedAt ?? Date.now(),
+      title: typeof meta?.title === 'string' ? meta.title : (local?.title ?? null),
+      parentId: typeof meta?.parentId === 'string' ? meta.parentId : (local?.parentId ?? null),
+      sourceSeedLength: Number.isSafeInteger(meta?.sourceSeedLength) ? meta.sourceSeedLength : (local?.sourceSeedLength ?? null),
+    })
+  }
+  state.loadedSessions = next
+  try { localStorage.setItem(LOADED_SESSIONS_KEY, JSON.stringify(Object.fromEntries(state.loadedSessions))) } catch { /* ignore */ }
+  const changed = JSON.stringify(Object.fromEntries(state.loadedSessions)) !== before
+  // Lightweight server map carries metadata only. Hydrate any session that is
+  // new locally (empty messages) so a remote device sees the actual cards, not
+  // blank placeholders, without waiting for a manual drag.
+  void hydrateServerMap()
+  return changed
+}
+
+/** Fill full message logs for server-map sessions that have no local cache. */
+async function hydrateServerMap() {
+  if (!state.mapVisible || state.draft !== null || state.dragging) return
+  for (const [sessionId, entry] of [...state.loadedSessions.entries()]) {
+    if (Array.isArray(entry.messages) && entry.messages.length > 0) continue
+    const parentSessionId = entry.parentId === null ? null : String(entry.parentId).replace(/^loaded:/, '')
+    const parentEntry = parentSessionId === null ? null : state.loadedSessions.get(parentSessionId)
+    const parentThread = parentEntry ? threadFromLoadedSession(parentSessionId, parentEntry, sessionSummaryById(parentSessionId)) : null
+    try {
+      await loadSessionToMap(sessionId, { title: entry.title }, parentThread, true, entry.sourceSeedLength)
+    } catch { /* keep going */ }
+  }
+  if (canReplaceView()) render()
+}
+
+/** Subscribe to server-pushed map changes (SSE). No polling: a device only
+ * refetches /api/map when another device actually changed the map. */
+function setupMapEvents() {
+  if (mapEventSource !== null) return
+  try {
+    const es = new EventSource('/synapse/api/map/events')
+    mapEventSource = es
+    es.addEventListener('map-changed', () => {
+      if (!state.mapVisible || document.hidden) return
+      void loadServerMap().then(changed => {
+        if (changed && canReplaceView()) render()
+      }).catch(() => {})
+    })
+    es.onerror = () => {
+      // EventSource auto-reconnects; nothing else to do.
+    }
+  } catch { /* EventSource unavailable (rare); map still works via initial load */ }
+}
+
+/**
+ * Manual sync: pull the server-authoritative map, then auto-add any DSH fork
+ * sessions that exist on the server but have not been dragged into the map yet.
+ * This is how a fork created in DSH (on this machine or another) shows up on
+ * every device without a manual drag.
+ */
+async function syncForks() {
+  setError('')
+  await loadServerMap().catch(() => {})
+  // Fetch the authoritative DSH session list from the server (not from the
+  // parent page push, which may not have arrived yet on a remote device).
+  let sessions = []
+  try {
+    const res = await fetch('/synapse/api/sessions', { cache: 'no-store' })
+    if (res.ok) {
+      const body = await res.json().catch(() => ({}))
+      sessions = Array.isArray(body.sessions) ? body.sessions : []
+    }
+  } catch { /* fall back to left library below */ }
+  // Collect forks (sessions with a parentId) not yet on the map. Only auto-add
+  // a fork whose parent is already part of this map. A fork whose parent is not
+  // loaded belongs to a conversation the user has not dragged onto this canvas;
+  // pulling in every historical fork would flood the map with old/archived
+  // branches. The server list already excludes DSH-archived sessions, and this
+  // client-side set is a second guard for archived sessions that the server may
+  // not have mirrored yet.
+  const archived = new Set(state.archivedSessionIds)
+  const forks = []
+  for (const session of sessions) {
+    if (session?.parentId && !archived.has(session.id) && state.loadedSessions.has(session.parentId) && !state.loadedSessions.has(session.id)) forks.push(session)
+  }
+  // Also scan the left library in case the server list was unavailable.
+  if (forks.length === 0) {
+    for (const workspace of state.dshWorkspaces) {
+      for (const session of workspace.sessions ?? []) {
+        if (session.parentId && !archived.has(session.id) && state.loadedSessions.has(session.parentId) && !state.loadedSessions.has(session.id) && !forks.some(f => f.id === session.id)) forks.push(session)
+      }
+    }
+  }
+  if (forks.length === 0) {
+    if (canReplaceView()) render()
+    return
+  }
+  for (const session of forks) {
+    // Parent is guaranteed to be loaded by the filter above.
+    const parentEntry = state.loadedSessions.get(session.parentId)
+    const parentThread = parentEntry ? threadFromLoadedSession(session.parentId, parentEntry, sessionSummaryById(session.parentId)) : null
+    // Pass the fork's durable seed boundary so only the branch's own tail is
+    // shown, not the whole inherited parent context repeated on a second row.
+    const atSeq = Number.isSafeInteger(session.seedLength) ? session.seedLength : undefined
+    try {
+      await loadSessionToMap(session.id, { title: session.title }, parentThread, false, atSeq)
+    } catch { /* keep going */ }
+  }
+  if (canReplaceView()) render()
+}
+
+function cacheLoadedSession(sessionId, messages, title = null, parentId = null, sourceSeedLength = null) {
   const previous = state.loadedSessions.get(sessionId)
   state.loadedSessions.set(sessionId, {
     messages: Array.isArray(messages) ? messages : [],
     cachedAt: Date.now(),
     title,
     parentId: parentId ?? previous?.parentId ?? null,
+    sourceSeedLength: sourceSeedLength ?? previous?.sourceSeedLength ?? null,
   })
   persistLoadedSessions()
 }
@@ -112,7 +280,7 @@ function post(type, payload = {}) {
 
 function dshRpc(type, payload = {}, timeout = 20_000) {
   if (window.parent === window) return Promise.reject(new Error('请从 DSH 页面打开 Synapse 后再操作会话'))
-  const requestId = crypto.randomUUID()
+  const requestId = makeId()
   post(type, { requestId, ...payload })
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
@@ -171,6 +339,7 @@ function threadFromLoadedSession(sessionId, entry, sessionSummary = null) {
     id: `loaded:${sessionId}`,
     title: typeof title === 'string' && title.trim() !== '' ? title.slice(0, 120) : 'DSH 会话',
     parentId: entry?.parentId ?? null,
+    sourceSeedLength: Number.isSafeInteger(entry?.sourceSeedLength) ? entry.sourceSeedLength : null,
     dshSessionId: sessionId,
     dshSessionTitle: typeof title === 'string' ? title.slice(0, 120) : null,
     color: '#3478f6',
@@ -188,21 +357,37 @@ function threadFromLoadedSession(sessionId, entry, sessionSummary = null) {
  * When `parentThread` is given (a fork created from a loaded map thread), the
  * new thread is linked to it and cached with that parent link.
  */
-async function loadSessionToMap(sessionId, sessionSummary = null, parentThread = null, force = false) {
+async function loadSessionToMap(sessionId, sessionSummary = null, parentThread = null, force = false, atSeq = undefined) {
   if (typeof sessionId !== 'string' || sessionId === '') return null
   const cached = state.loadedSessions.get(sessionId)
   if (cached !== undefined && !force) {
     if (parentThread !== null && cached.parentId === null) {
-      cacheLoadedSession(sessionId, cached.messages, cached.title, parentThread.id)
+      cacheLoadedSession(sessionId, cached.messages, cached.title, parentThread.id, cached.sourceSeedLength)
     }
     return threadFromLoadedSession(sessionId, cached, sessionSummary)
   }
   if (!state.mapVisible) return cached === undefined ? null : threadFromLoadedSession(sessionId, cached, sessionSummary)
-  const result = await dshRpc('synapse:load-history', { sessionId }, 60_000)
+  // Load the full log (no client-side cut): a fork's own seq numbering can
+  // differ from the parent's cut, so filtering here empties the branch. The
+  // cut is stored as sourceSeedLength and applied at render time instead.
+  const result = await dshRpc('synapse:load-history', { sessionId, atSeq }, 60_000)
   const messages = Array.isArray(result?.messages) ? result.messages : []
   const title = sessionSummary?.title ?? null
-  cacheLoadedSession(sessionId, messages, title, parentThread?.id ?? null)
-  return threadFromLoadedSession(sessionId, { messages, title, parentId: parentThread?.id ?? null }, sessionSummary)
+  // Prefer the explicit cut passed by the caller (branch creation). Otherwise,
+  // when this is a fork whose parent is already on the map, infer the branch
+  // boundary from content: the first user turn in this session that is NOT part
+  // of the parent's history is the branch's own first question. Using its seq
+  // as the seed means the branch row only shows the new divergence, not the
+  // whole inherited parent context repeated on a second row.
+  let seed = Number.isSafeInteger(atSeq) ? atSeq : null
+  if (!Number.isSafeInteger(seed) && parentThread !== null && parentThread.dshSessionId !== null) {
+    const parentMessages = state.loadedSessions.get(parentThread.dshSessionId)?.messages ?? []
+    const parentUserTexts = new Set(parentMessages.filter(message => message.kind === 'user').map(message => message.text))
+    const firstOwnUser = messages.find(message => message.kind === 'user' && !parentUserTexts.has(message.text))
+    if (firstOwnUser !== undefined && Number.isInteger(firstOwnUser.sourceSeq)) seed = firstOwnUser.sourceSeq
+  }
+  cacheLoadedSession(sessionId, messages, title, parentThread?.id ?? null, seed)
+  return threadFromLoadedSession(sessionId, { messages, title, parentId: parentThread?.id ?? null, sourceSeedLength: seed }, sessionSummary)
 }
 
 /** All threads currently on the map = the loaded sessions, in load order. */
@@ -344,7 +529,9 @@ async function submitDraft() {
     const session = await dshRpc('synapse:fork-session', { sessionId: parent.dshSessionId, atSeq: draft.atSeq })
     if (draft.anchorId !== undefined) rememberBranchAnchor(session.id, draft.anchorId)
     // Drag-only model: a fork becomes a loaded map session linked to its parent.
-    const thread = await loadSessionToMap(session.id, { title: session.title }, parent)
+    // Pass the cut seq so history is trimmed to the branch's own tail (the
+    // inherited prefix is already drawn by the parent chain).
+    const thread = await loadSessionToMap(session.id, { title: session.title }, parent, false, draft.atSeq)
     if (thread === null) throw new Error('分支会话加载失败')
     state.activeId = thread.id
     state.draft = null
@@ -377,7 +564,11 @@ function persistedMessagesFor(thread) {
 }
 
 function pendingUserIndex(messages, pending) {
-  return messages.findLastIndex(message => message.kind === 'user' && message.text === pending.text && new Date(message.at).getTime() >= pending.at - 2_000)
+  // Match by text only. The old time-window (±2s) breaks on forked sessions
+  // where history is loaded from DSH's log and timestamps can differ from the
+  // local send time (clock skew / refresh delay), leaving the card stuck on
+  // "正在回复" forever.
+  return messages.findLastIndex(message => message.kind === 'user' && message.text === pending.text)
 }
 
 function settlePendingReply(thread, messages) {
@@ -609,7 +800,14 @@ function conversationCards(threads) {
   const cards = []
   const cardsByThread = new Map()
   for (const thread of threads) {
-    const messages = messagesFor(thread)
+    let messages = messagesFor(thread)
+    // Fork display: the branch's own log contains the inherited prefix; only
+    // render turns after the durable seed boundary so the parent chain is not
+    // duplicated on the branch row.
+    if (Number.isSafeInteger(thread.sourceSeedLength)) {
+      // The seed is the first event owned by the branch, so keep >= seed.
+      messages = messages.filter(message => Number.isInteger(message.sourceSeq) && message.sourceSeq >= thread.sourceSeedLength)
+    }
     const turns = []
     for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
       const question = messages[messageIndex]
@@ -686,7 +884,12 @@ function conversationCards(threads) {
       const inheritedTurn = Number.isSafeInteger(seedLength)
         ? parentCards?.filter(candidate => Number.isInteger(candidate.sourceSeq) && candidate.sourceSeq < seedLength).at(-1)
         : undefined
-      card.parentId = state.branchAnchors.get(card.dshThreadId) ?? inheritedTurn?.id ?? null
+      // A fork's first card must always connect to its parent thread. Prefer the
+      // explicit branch anchor (the exact card the user branched from), then the
+      // durable DSH seed boundary, and finally the parent thread's last card —
+      // never fall back to null, which would make the branch a new root and push
+      // it onto a separate row instead of spacing it beside the parent.
+      card.parentId = state.branchAnchors.get(card.dshThreadId) ?? inheritedTurn?.id ?? parentCards?.at(-1)?.id ?? null
     }
   }
   return layoutConversationGraph(cards, threads)
@@ -804,17 +1007,29 @@ function processRecords(process, messageId) {
 function renderSessionLibrary() {
   const workspaces = state.dshWorkspaces
   if (workspaces.length === 0) return '<nav class="session-library"><p class="tree-empty">暂未同步会话</p></nav>'
+  const archived = new Set(state.archivedSessionIds)
   const sections = workspaces.map(workspace => {
-    const sessions = workspace.sessions ?? []
-    const items = sessions.map(session => {
+    const sessions = (workspace.sessions ?? [])
+      .filter(session => !archived.has(session.id))
+      .slice()
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+    if (sessions.length === 0) return ''
+    const expanded = state.expandedWorkspaces.has(workspace.id)
+    const limit = expanded ? Math.max(state.sidebarSessionLimit, sessions.length) : state.sidebarSessionLimit
+    const visibleSessions = sessions.slice(0, limit)
+    const hiddenCount = sessions.length - visibleSessions.length
+    const items = visibleSessions.map(session => {
       const loaded = state.loadedSessions.has(session.id)
       const title = session.title ?? session.id
       return `<div class="session-item${loaded ? ' loaded' : ''}" draggable="true" data-session-id="${escapeHtml(session.id)}" title="${escapeHtml(title)}">
         <span class="session-dot"></span><span class="session-title">${escapeHtml(title)}</span>${loaded ? '<i class="session-loaded">已载入</i>' : ''}${loaded ? `<button class="session-unload" type="button" data-action="unload-session" data-session-id="${escapeHtml(session.id)}" title="卸载此会话地图" aria-label="卸载 ${escapeHtml(title)}">×</button>` : ''}
       </div>`
-    }).join('') || '<p class="tree-empty">此工作区暂无会话</p>'
-    return `<section class="session-group"><h3 class="session-group-title">${escapeHtml(workspace.title)}</h3><div class="session-group-body">${items}</div></section>`
-  }).join('')
+    }).join('')
+    const toggle = hiddenCount > 0 || expanded
+      ? `<button class="session-group-toggle" type="button" data-action="toggle-workspace-sessions" data-workspace-id="${escapeHtml(workspace.id)}">${expanded ? '收起' : `展开其余 ${hiddenCount} 个会话`}</button>`
+      : ''
+    return `<section class="session-group"><h3 class="session-group-title">${escapeHtml(workspace.title)}</h3><div class="session-group-body">${items}${toggle}</div></section>`
+  }).filter(Boolean).join('')
   return `<nav class="session-library">${sections}</nav>`
 }
 
@@ -823,7 +1038,12 @@ function renderThread() {
   if (thread === null) return renderCanvas()
   const messages = messagesFor(thread)
   const waiting = state.pendingReplies.has(thread.dshSessionId)
-  return `<section class="detail-view"><header class="detail-head"><div class="detail-head-title"><div class="detail-head-meta"><span class="detail-badge">${thread.parentId === null ? '会话' : '分支'}</span>${thread.dshSessionTitle ?? thread.title ? `<span class="detail-subtitle">${escapeHtml(thread.dshSessionTitle ?? thread.title)}</span>` : ''}</div><h1>${escapeHtml(questionFor(thread))}</h1></div><div class="detail-head-actions"><button data-action="open-dsh" data-thread="${thread.id}" title="在原生对话中打开此会话">在 DSH 中打开</button><button data-action="open-branch" data-thread="${thread.id}" title="基于最新回答创建分支">创建分支</button><button class="primary" data-action="show-canvas">返回画布</button></div></header><div class="detail-scroll">${messages.map(message => threadMessage(thread, message)).join('') || '<div class="note-empty">等待这条会话的第一条消息。</div>'}</div><form class="message-composer" data-compose="${thread.id}"><textarea maxlength="4000" placeholder="继续当前会话…" ${waiting ? 'disabled' : ''}></textarea><button class="primary" type="submit" ${waiting ? 'disabled' : ''}>${waiting ? '等待回复' : '发送'}</button></form></section>`
+  const draft = state.draft
+  const draftForThis = draft !== null && draft.parentId === thread.id
+  const detailDraft = draftForThis
+    ? `<div class="detail-draft"><div class="detail-draft-label">${draft.kind === 'continue' ? '新的追问' : '新的分支'}</div><form class="draft-branch-form" data-draft><textarea maxlength="4000" placeholder="${draft.kind === 'continue' ? '输入追问' : '输入这个分支的新问题'}" ${draft.sending ? 'disabled' : ''}>${escapeHtml(draft.text)}</textarea>${draftActions(draft)}</form></div>`
+    : ''
+  return `<section class="detail-view"><header class="detail-head"><div class="detail-head-title"><div class="detail-head-meta"><span class="detail-badge">${thread.parentId === null ? '会话' : '分支'}</span>${thread.dshSessionTitle ?? thread.title ? `<span class="detail-subtitle">${escapeHtml(thread.dshSessionTitle ?? thread.title)}</span>` : ''}</div><h1>${escapeHtml(questionFor(thread))}</h1></div><div class="detail-head-actions"><button data-action="open-dsh" data-thread="${thread.id}" title="在原生对话中打开此会话">在 DSH 中打开</button><button data-action="open-branch" data-thread="${thread.id}" title="基于最新回答创建分支">创建分支</button><button class="primary" data-action="show-canvas">返回画布</button></div></header><div class="detail-scroll">${messages.map(message => threadMessage(thread, message)).join('') || '<div class="note-empty">等待这条会话的第一条消息。</div>'}${detailDraft}</div><form class="message-composer" data-compose="${thread.id}"><textarea maxlength="4000" placeholder="继续当前会话…" ${waiting ? 'disabled' : ''}></textarea><button class="primary" type="submit" ${waiting ? 'disabled' : ''}>${waiting ? '等待回复' : '发送'}</button></form></section>`
 }
 
 function render() {
@@ -839,7 +1059,7 @@ function render() {
   const workspace = state.workspace
   const threads = mapThreads()
   const view = state.mode === 'thread' ? renderThread() : renderCanvas()
-  const canvasControls = state.mode === 'canvas' && (threads.length > 0 || state.draft?.kind === 'new') ? `<div class="canvas-controls"><button data-action="layout">整理节点</button><button data-action="focus-active" title="定位到当前会话">定位</button><button data-action="zoom-out" aria-label="缩小">-</button><span>${Math.round(state.zoom * 100)}%</span><button data-action="zoom-in" aria-label="放大">+</button><button data-action="clear-map" title="卸载所有已载入会话">清空地图</button></div>` : ''
+  const canvasControls = state.mode === 'canvas' && (threads.length > 0 || state.draft?.kind === 'new') ? `<div class="canvas-controls"><button data-action="layout">整理节点</button><button data-action="focus-active" title="定位到当前会话">定位</button><button data-action="zoom-out" aria-label="缩小">-</button><span>${Math.round(state.zoom * 100)}%</span><button data-action="zoom-in" aria-label="放大">+</button><button data-action="sync-forks" title="同步：拉取服务端地图并自动加入新分支">同步</button><button data-action="clear-map" title="卸载所有已载入会话">清空地图</button></div>` : ''
   const detailAvailable = currentThread() !== null
   const canvasTabs = `<nav class="canvas-tabs" aria-label="会话地图视图"><button class="${state.mode === 'canvas' ? 'active' : ''}" data-action="show-canvas">地图</button><button class="${state.mode === 'thread' ? 'active' : ''}" data-action="show-thread" data-thread="${state.activeId ?? ''}" ${detailAvailable ? '' : 'disabled'}>详情</button></nav>`
   app.innerHTML = `<main class="synapse-shell ${state.sidebarCollapsed ? 'sidebar-collapsed' : ''}"><aside class="sidebar"><div class="sidebar-brand-row"><div class="brand" aria-label="Synapse"><svg class="brand-mark" aria-hidden="true" viewBox="0 0 32 32" fill="none"><path d="M9 10.5 16 7l7 3.5M9 10.5v8L16 22m0-15v15m7-11.5v8L16 22"/><circle cx="9" cy="10" r="2.5"/><circle cx="23" cy="10" r="2.5"/><circle cx="16" cy="23" r="2.5"/></svg><strong>Synapse</strong></div><button class="sidebar-toggle" type="button" data-action="toggle-sidebar" aria-label="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}" title="${state.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.25"/><path d="M6 2v12"/></svg></button></div><button class="new-workspace" type="button" data-action="create-session" ${state.draft !== null ? 'disabled' : ''}><svg class="new-session-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v6.5M4.75 8h6.5"/></svg><span>新会话</span></button><div class="sidebar-heading"><span>历史对话</span><span class="sidebar-hint">拖到右侧地图加载</span></div>${renderSessionLibrary()}</aside><header class="topbar"><div class="view-switch" role="group" aria-label="视图切换"><button data-action="close" type="button" aria-pressed="false">对话</button><button class="active" type="button" aria-pressed="true">会话地图</button></div>${canvasControls}</header><section class="main-stage">${state.error ? `<div class="status-message" role="alert"><span>${escapeHtml(state.error)}</span><button data-action="dismiss-error" aria-label="关闭" title="关闭">×</button></div>` : ''}${canvasTabs}${view}</section></main>`
@@ -1013,6 +1233,12 @@ app.addEventListener('click', async event => {
   try {
     if (button.dataset.action === 'close') post('synapse:close')
     if (button.dataset.action === 'toggle-sidebar') { state.sidebarCollapsed = !state.sidebarCollapsed; render() }
+    if (button.dataset.action === 'toggle-session-library') { state.sidebarExpanded = !state.sidebarExpanded; render() }
+    if (button.dataset.action === 'toggle-workspace-sessions' && button.dataset.workspaceId !== undefined) {
+      const id = button.dataset.workspaceId
+      state.expandedWorkspaces.has(id) ? state.expandedWorkspaces.delete(id) : state.expandedWorkspaces.add(id)
+      render()
+    }
     if (button.dataset.action === 'create-session') openNewSession()
     if (button.dataset.action === 'open-current' && state.currentDsh !== null) post('synapse:open-session', { sessionId: state.currentDsh.id })
     if (button.dataset.action === 'select-thread' && thread !== undefined) {
@@ -1041,6 +1267,9 @@ app.addEventListener('click', async event => {
       const title = button.dataset.sessionId
       if (window.confirm(`卸载此会话地图？DSH 原会话会保留，可随时再次拖入。`)) unloadSession(button.dataset.sessionId)
       void 0
+    }
+    if (button.dataset.action === 'sync-forks') {
+      void syncForks()
     }
     if (button.dataset.action === 'clear-map') {
       if (mapThreads().length === 0) return
@@ -1144,6 +1373,12 @@ window.addEventListener('message', event => {
     if (!initialRefreshStarted) {
       initialRefreshStarted = true
       void refreshSummaries().catch(setError)
+      // Server-authoritative map: any device sees the same loaded sessions.
+      void loadServerMap().then(() => {
+        if (canReplaceView()) render()
+      }).catch(() => {})
+      // Push-based sync: subscribe once, no polling.
+      setupMapEvents()
     }
   }
   if (data.type === 'synapse:map-closed') {
@@ -1152,6 +1387,7 @@ window.addEventListener('message', event => {
   if (data.type === 'synapse:workspaces') {
     if (!state.mapVisible) return
     state.dshWorkspaces = Array.isArray(data.workspaces) ? data.workspaces.filter(workspace => typeof workspace?.id === 'string' && typeof workspace.title === 'string' && Array.isArray(workspace.sessionIds)) : []
+    state.archivedSessionIds = Array.isArray(data.archivedSessionIds) ? data.archivedSessionIds.filter(id => typeof id === 'string') : (state.archivedSessionIds ?? [])
     if (canReplaceView()) render()
   }
   if (data.type === 'synapse:current-session') {
@@ -1175,13 +1411,21 @@ window.addEventListener('message', event => {
         return
       }
       state.liveReplies.delete(data.sessionId)
+      // The turn has finished: clear the pending marker regardless of whether
+      // the follow-up history refresh succeeds, so the card can never stay
+      // stuck on "正在回复".
+      state.pendingReplies.delete(data.sessionId)
       // A turn finished: refresh this loaded session's cached history so the
-      // finalized answer lands on the map without a manual re-drag.
+      // finalized answer lands on the map without a manual re-drag. Preserve the
+      // branch cut (sourceSeedLength) so a fork never re-imports its inherited
+      // prefix after the first turn completes.
       if (state.loadedSessions.has(data.sessionId)) {
-        void loadSessionToMap(data.sessionId, sessionSummaryById(data.sessionId), null, true).then(() => {
+        const entry = state.loadedSessions.get(data.sessionId)
+        const atSeq = Number.isSafeInteger(entry?.sourceSeedLength) ? entry.sourceSeedLength : undefined
+        void loadSessionToMap(data.sessionId, sessionSummaryById(data.sessionId), null, true, atSeq).then(() => {
           if (canReplaceView()) render()
         }).catch(() => {})
-      } else if (canReplaceView() || state.pendingReplies.has(data.sessionId)) {
+      } else if (canReplaceView()) {
         scheduleLiveRender()
       }
     }
@@ -1193,6 +1437,7 @@ window.addEventListener('message', event => {
 let initialRefreshStarted = false
 post('synapse:request-current')
 let polling = false
+let mapEventSource = null
 let liveRenderTimer = 0
 function scheduleLiveRender() {
   if (liveRenderTimer !== 0 || !canReplaceView()) return
@@ -1210,4 +1455,18 @@ async function pollProjection() {
 }
 window.setInterval(() => { void pollProjection() }, 2_000)
 
+// Robustness: if the parent page's `synapse:map-opened` message is lost (e.g.
+// the iframe was still loading when the user clicked the map toggle), self
+// initialize after a short grace period so the map still loads and subscribes.
+window.setTimeout(() => {
+  if (initialRefreshStarted) return
+  initialRefreshStarted = true
+  state.mapVisible = true
+  render()
+  void refreshSummaries().catch(() => {})
+  void loadServerMap().then(changed => {
+    if (changed && canReplaceView()) render()
+  }).catch(() => {})
+  setupMapEvents()
+}, 2_500)
 

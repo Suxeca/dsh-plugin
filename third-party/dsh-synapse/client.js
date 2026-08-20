@@ -21,10 +21,17 @@ window.__ModuleLoader__.load({
       const snapshot = ctx.workspaces.list.getSnapshot()
       const byId = sessions.byId
       const accounted = new Set(snapshot.items.flatMap(workspace => workspace.sessionIds))
-      const toSession = id => ({ id, title: byId[id]?.displayTitle ?? byId[id]?.title ?? null, cwd: byId[id]?.cwd ?? null, blank: byId[id]?.blank ?? false })
+      const toSession = id => {
+        const summary = byId[id]
+        // Subagent/team sessions and blank "new session" placeholders are not
+        // part of DSH's native conversation sidebar; keep them out of Synapse's
+        // left library too so the counts match.
+        if (summary === undefined || summary.origin === 'subagent' || summary.blank === true) return null
+        return { id, title: summary.displayTitle ?? summary.title ?? null, cwd: summary.cwd ?? null, blank: summary.blank ?? false, parentId: summary.parentId ?? null, updatedAt: summary.updatedAt ?? 0 }
+      }
       return [
-        ...snapshot.items.map(workspace => ({ id: workspace.workspaceId, title: workspace.title, path: workspace.path, sessionIds: workspace.sessionIds, sessions: workspace.sessionIds.map(toSession) })),
-        { id: 'dsh-ungrouped', title: '未分组', path: null, sessionIds: sessions.ids.filter(id => !accounted.has(id)), sessions: sessions.ids.filter(id => !accounted.has(id)).map(toSession) },
+        ...snapshot.items.map(workspace => ({ id: workspace.workspaceId, title: workspace.title, path: workspace.path, sessionIds: workspace.sessionIds, sessions: workspace.sessionIds.map(toSession).filter(Boolean) })),
+        { id: 'dsh-ungrouped', title: '未分组', path: null, sessionIds: sessions.ids.filter(id => !accounted.has(id)), sessions: sessions.ids.filter(id => !accounted.has(id)).map(toSession).filter(Boolean) },
       ]
     }
 
@@ -53,9 +60,15 @@ window.__ModuleLoader__.load({
           .filter(Boolean)
           .join('\n')
       }
-      const messagesFromNodes = nodes => {
+      const messagesFromNodes = (nodes, atSeq = undefined) => {
         if (!Array.isArray(nodes)) return []
+        const cut = Number.isInteger(atSeq) ? atSeq : undefined
         return nodes.flatMap(node => {
+          // For a fork, only the part at/after the cut belongs to the branch:
+          // the inherited prefix is already drawn by the parent chain, so
+          // repeating it here would create a duplicate left-to-right row. The
+          // cut is the FIRST event owned by the branch, so keep >= cut.
+          if (cut !== undefined && Number.isInteger(node?.seq) && node.seq < cut) return []
           if (node?.kind === 'user') {
             const text = historyText(node.content)
             if (text.trimStart().startsWith('Current runtime context. This snapshot supersedes earlier runtime-context snapshots.')) return []
@@ -71,7 +84,7 @@ window.__ModuleLoader__.load({
           return []
         })
       }
-      const loadHistory = async sessionId => {
+      const loadHistory = async (sessionId, atSeq = undefined) => {
         // Resolve the Session instance without staging it as current: the
         // concrete object exposes open() (the SessionFace type hides it), so
         // bulk history loading never changes DSH's current selection.
@@ -95,7 +108,7 @@ window.__ModuleLoader__.load({
           snapshot = session.getSnapshot()
           pages++
         }
-        return messagesFromNodes(snapshot.nodes)
+        return messagesFromNodes(snapshot.nodes, atSeq)
       }
       const style = document.createElement('style')
       style.textContent = '.dsh-synapse-switch{position:fixed;z-index:80;top:12px;left:50%;display:flex;gap:2px;transform:translateX(-50%);border:1px solid #d1d5db;border-radius:999px;background:rgba(255,255,255,.96);padding:3px;backdrop-filter:blur(10px)}.dsh-synapse-switch button{height:28px;border:0;border-radius:999px;background:transparent;padding:0 11px;color:#6b7280;font:600 12px Inter,system-ui,sans-serif;cursor:pointer;white-space:nowrap}.dsh-synapse-switch button:hover{background:#f3f4f6;color:#111827}.dsh-synapse-switch button.active{background:#111827;color:#fff}.dsh-synapse-switch button:focus-visible{outline:2px solid #111827;outline-offset:2px}.dsh-synapse-overlay{position:fixed;z-index:100;inset:0;background:#f5f7fa}.dsh-synapse-overlay.is-opening{visibility:hidden}.dsh-synapse-overlay[hidden]{display:none}.dsh-synapse-overlay iframe{display:block;width:100%;height:100%;border:0}'
@@ -178,7 +191,8 @@ window.__ModuleLoader__.load({
         syncSessions()
         syncLiveSessions()
         if (!overlay.hidden) {
-          send('synapse:workspaces', { workspaces: workspaceSnapshot(ctx) })
+          const archivedSessionIds = ctx.workspaces.list.getSnapshot().archivedSessionIds ?? []
+          send('synapse:workspaces', { workspaces: workspaceSnapshot(ctx), archivedSessionIds })
           send('synapse:current-session', { session: currentSession(ctx) })
         }
       }
@@ -215,7 +229,8 @@ window.__ModuleLoader__.load({
         if (event.data.type === 'synapse:close') return close()
         if (event.data.type === 'synapse:map-ready') return showMapOverlay()
         if (event.data.type === 'synapse:request-current') {
-          send('synapse:workspaces', { workspaces: workspaceSnapshot(ctx) })
+          const archivedSessionIds = ctx.workspaces.list.getSnapshot().archivedSessionIds ?? []
+          send('synapse:workspaces', { workspaces: workspaceSnapshot(ctx), archivedSessionIds })
           return send('synapse:current-session', { session: currentSession(ctx) })
         }
         if (event.data.type === 'synapse:open-session') {
@@ -243,7 +258,14 @@ window.__ModuleLoader__.load({
           prompt(event.data.sessionId, text).then(() => {
             send('synapse:message-sent', { requestId: event.data.requestId, sessionId: event.data.sessionId })
           }).catch(error => {
-            send('synapse:bridge-error', { requestId: event.data.requestId, message: error instanceof Error ? error.message : 'DSH 消息发送失败' })
+            const message = error instanceof Error ? error.message : String(error ?? '')
+            // Model/adapter errors are common on freshly forked sessions: tell the
+            // user to pick a model in DSH instead of showing a raw engine message.
+            if (/no adapter serves provider|select a model|no model|provider.*not.*available|adapter.*missing/i.test(message)) {
+              send('synapse:bridge-error', { requestId: event.data.requestId, message: '这个会话还没有可用的模型（原会话的模型适配器当前不可用）。请先在 DSH 原生对话中为这个分支会话选择一个模型，再回来发送。' })
+            } else {
+              send('synapse:bridge-error', { requestId: event.data.requestId, message: 'DSH 消息发送失败：' + message })
+            }
           })
           return
         }
@@ -259,8 +281,9 @@ window.__ModuleLoader__.load({
         if (event.data.type === 'synapse:load-history') {
           const sessionId = typeof event.data.sessionId === 'string' ? event.data.sessionId : ''
           if (sessionId === '') return send('synapse:bridge-error', { requestId: event.data.requestId, message: '会话 id 无效' })
-          loadHistory(sessionId).then(messages => {
-            send('synapse:history-loaded', { requestId: event.data.requestId, sessionId, messages })
+          const atSeq = Number.isInteger(event.data.atSeq) ? event.data.atSeq : undefined
+          loadHistory(sessionId, atSeq).then(messages => {
+            send('synapse:history-loaded', { requestId: event.data.requestId, sessionId, atSeq, messages })
           }).catch(error => {
             send('synapse:bridge-error', { requestId: event.data.requestId, message: error instanceof Error ? error.message : 'DSH 会话历史加载失败' })
           })

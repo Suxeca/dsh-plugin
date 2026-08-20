@@ -30,6 +30,21 @@ export class WorkspaceStore {
     return this.state.workspaces.map(workspace => this.summary(workspace))
   }
 
+  /** Server-authoritative map state (loaded sessions shared across devices). */
+  async getMap() {
+    await this.ready
+    return structuredClone(this.state.mapState ?? {})
+  }
+
+  /** Replace the whole map state (server wins; last writer wins across devices). */
+  async setMap(mapState) {
+    if (mapState === null || typeof mapState !== 'object' || Array.isArray(mapState)) throw new InputError('mapState 必须是对象')
+    return this.mutate(() => {
+      this.state.mapState = mapState
+      return structuredClone(this.state.mapState)
+    })
+  }
+
   async get(workspaceId) {
     await this.ready
     const workspace = this.workspace(workspaceId)
@@ -110,6 +125,7 @@ export class WorkspaceStore {
    * (which are persisted client-side in localStorage).
    */
   async syncSessions(sessions, removedSessionIds = [], archivedSessionIds = []) {
+    let changed = false
     return this.mutate(() => {
       if (!Array.isArray(sessions)) throw new InputError('sessions 必须是数组')
       if (!Array.isArray(removedSessionIds) || removedSessionIds.some(item => typeof item !== 'string')) throw new InputError('removedSessionIds 必须是字符串数组')
@@ -117,13 +133,23 @@ export class WorkspaceStore {
       // Mirror DSH's registry-global archive set (the client holds the
       // authoritative copy from workspaces.list). Persist it so boot-time
       // replay never resurrects a session the user archived natively.
-      this.state.dsArchivedSessionIds = [...new Set(archivedSessionIds)]
+      const nextArchived = [...new Set(archivedSessionIds)]
+      if (JSON.stringify(nextArchived) !== JSON.stringify(this.state.dsArchivedSessionIds ?? [])) {
+        this.state.dsArchivedSessionIds = nextArchived
+        changed = true
+      }
       if (!this.autoProjection) {
         // Drag-only data layer: drop every auto-projected DSH workspace.
         // Manual/legacy non-dsh workspaces are preserved.
-        this.state.workspaces = this.state.workspaces.filter(workspace => workspace.kind !== 'dsh')
+        const nextWorkspaces = this.state.workspaces.filter(workspace => workspace.kind !== 'dsh')
+        if (nextWorkspaces.length !== this.state.workspaces.length) {
+          this.state.workspaces = nextWorkspaces
+          changed = true
+        }
         return this.list()
       }
+      // Legacy auto-projection mode: always persist (it may create/prune threads).
+      changed = true
       const blankIds = new Set(sessions.filter(item => item?.blank === true && typeof item.id === 'string').map(item => item.id))
       const removedIds = new Set(removedSessionIds)
       const archivedIds = new Set(this.state.dsArchivedSessionIds)
@@ -151,7 +177,7 @@ export class WorkspaceStore {
         }
       }
       return this.list()
-    })
+    }, { save: () => changed })
   }
 
   async addMessage(threadId, text) {
@@ -253,16 +279,17 @@ export class WorkspaceStore {
       if (migrated) await this.save()
     } catch (error) {
       if (error?.code !== 'ENOENT') throw new Error(`synapse: cannot read ${this.dataFile}: ${error.message}`)
-      this.state = { version: 4, hiddenSessionIds: [], dsArchivedSessionIds: [], workspaces: [] }
+      this.state = { version: 4, hiddenSessionIds: [], dsArchivedSessionIds: [], mapState: {}, workspaces: [] }
       await this.save()
     }
   }
 
-  async mutate(action) {
+  async mutate(action, { save = true } = {}) {
     await this.ready
     const task = this.serial.then(async () => {
       const result = action()
-      await this.save()
+      const shouldSave = typeof save === 'function' ? save() : save
+      if (shouldSave) await this.save()
       return result
     })
     this.serial = task.catch(() => undefined)
@@ -517,7 +544,8 @@ function normalizeState(value) {
   if ((value?.version === 2 || value?.version === 3 || value?.version === 4) && Array.isArray(value.workspaces)) {
     const hiddenSessionIds = Array.isArray(value.hiddenSessionIds) ? value.hiddenSessionIds.filter(item => typeof item === 'string') : []
     const dsArchivedSessionIds = Array.isArray(value.dsArchivedSessionIds) ? value.dsArchivedSessionIds.filter(item => typeof item === 'string') : []
-    migrated = value.version !== 3 || !Array.isArray(value.hiddenSessionIds) || !Array.isArray(value.dsArchivedSessionIds)
+    const mapState = value?.mapState !== null && typeof value?.mapState === 'object' && !Array.isArray(value?.mapState) ? value.mapState : {}
+    migrated = value.version !== 3 || !Array.isArray(value.hiddenSessionIds) || !Array.isArray(value.dsArchivedSessionIds) || !('mapState' in value)
     const workspaces = value.workspaces.map(workspace => ({
       ...workspace,
       threads: Array.isArray(workspace.threads) ? workspace.threads.map(thread => {
@@ -532,13 +560,14 @@ function normalizeState(value) {
         return { ...rest, messages: notes }
       }) : [],
     }))
-    state = { ...value, version: 3, hiddenSessionIds, dsArchivedSessionIds, workspaces }
+    state = { ...value, version: 3, hiddenSessionIds, dsArchivedSessionIds, mapState, workspaces }
   } else if (value?.version === 1 && Array.isArray(value.workspaces)) {
     const now = typeof value.updatedAt === 'string' ? value.updatedAt : new Date().toISOString()
     state = {
       version: 3,
       hiddenSessionIds: [],
       dsArchivedSessionIds: [],
+      mapState: {},
       workspaces: value.workspaces.map((workspace, index) => {
         const events = Array.isArray(workspace.events) ? workspace.events : []
         const workspaceNow = typeof workspace.updatedAt === 'string' ? workspace.updatedAt : now
@@ -762,6 +791,16 @@ export function apply(ctx, config) {
   // additional authorities opt in through config.trustedHosts (mirrors the
   // fence's DNS-rebinding defense).
   const trustedHosts = new Set(['localhost', '127.0.0.1', ...[...(config?.trustedHosts ?? [])].map(host => String(host).trim().toLowerCase()).filter(Boolean)])
+  // ── Server-Sent Events: push map changes to all connected Synapse clients ──
+  // Long-lived connections, no polling. A client only refetches /api/map when
+  // another device actually changes the map.
+  const mapClients = new Set()
+  const broadcastMapChanged = () => {
+    const payload = `event: map-changed\ndata: ${Date.now()}\n\n`
+    for (const res of mapClients) {
+      try { res.write(payload) } catch { /* client gone; cleaned up on close */ }
+    }
+  }
   const api = async (req, res) => {
     try {
       const hostname = (typeof req.headers.host === 'string' ? req.headers.host : '').replace(/:\d+$/, '').toLowerCase()
@@ -780,6 +819,49 @@ export function apply(ctx, config) {
       const branch = /^\/synapse\/api\/threads\/([0-9a-f-]+)\/branch$/i.exec(path)
       if (branch !== null && req.method === 'POST') return sendJson(res, 201, { thread: await store.branch(branch[1], await readJson(req)) })
       if (path === '/synapse/api/sessions/sync' && req.method === 'POST') { const body = await readJson(req); return sendJson(res, 200, { workspaces: await store.syncSessions(body.sessions, body.removedSessionIds, body.archivedSessionIds) }) }
+      if (path === '/synapse/api/sessions' && req.method === 'GET') {
+        // DSH session list (id, title, parentId) so the client sync button can
+        // auto-add forks without depending on the parent page's workspace push
+        // (which may not have arrived yet on a remote device).
+        //
+        // Exclude sessions the user archived natively in DSH. The archived set
+        // is mirrored here by the client's /sessions/sync POST; filtering at
+        // the source means the sync button can never resurrect archived
+        // conversations just because they still exist in ctx.sessions.list().
+        const archived = new Set(store.state.dsArchivedSessionIds ?? [])
+        const sessions = ctx.sessions.list()
+          .filter(session => !archived.has(session.id))
+          .map(session => ({
+            id: session.id,
+            title: typeof session.title === 'string' ? session.title : null,
+            cwd: session.header?.meta?.cwd ?? session.header?.cwd ?? null,
+            parentId: typeof session.header?.parentSession === 'string' ? session.header.parentSession : null,
+            seedLength: Number.isSafeInteger(session.header?.seedLength) ? session.header.seedLength : null,
+          }))
+        return sendJson(res, 200, { sessions })
+      }
+      if (path === '/synapse/api/map') {
+        if (req.method === 'GET') return sendJson(res, 200, { map: await store.getMap() })
+        if (req.method === 'PUT') {
+          const map = await store.setMap((await readJson(req)).map)
+          broadcastMapChanged()
+          return sendJson(res, 200, { map })
+        }
+      }
+      if (path === '/synapse/api/map/events') {
+        if (req.method !== 'GET') return sendJson(res, 405, { error: '方法不允许' })
+        // SSE stream: keep open, notify on map changes, drop on client close.
+        res.writeHead(200, {
+          'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-store',
+          connection: 'keep-alive',
+          'x-accel-buffering': 'no',
+        })
+        res.write('retry: 3000\n\n')
+        mapClients.add(res)
+        req.on('close', () => { mapClients.delete(res) })
+        return undefined
+      }
       const messages = /^\/synapse\/api\/threads\/([0-9a-f-]+)\/messages$/i.exec(path)
       if (messages !== null && req.method === 'POST') return sendJson(res, 201, { thread: await store.addMessage(messages[1], (await readJson(req)).text) })
       const thread = /^\/synapse\/api\/threads\/([0-9a-f-]+)$/i.exec(path)

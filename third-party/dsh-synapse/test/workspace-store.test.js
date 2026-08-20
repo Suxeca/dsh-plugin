@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -252,4 +252,38 @@ test('drag-only mode never creates server projection threads and cleans legacy D
   const dragOnly = new WorkspaceStore(join(directory, 'state.json'), false)
   await dragOnly.syncSessions([{ id: 'legacy', title: '旧', cwd: 'C:\\work\\legacy', blank: false }])
   assert.equal((await dragOnly.list()).length, 0)
+})
+
+test('drag-only sync with no actual change does not rewrite the data file', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-synapse-nosave-'))
+  const dataFile = join(directory, 'state.json')
+  const store = new WorkspaceStore(dataFile, false)
+  // First sync writes the file (archive mirror empty -> empty, no dsh workspaces -> no change,
+  // so even the first call may skip write; force a real change first via archive mirror).
+  await store.syncSessions([], [], [])
+  const first = await stat(dataFile)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  // Same payload again: nothing changed -> must NOT write.
+  await store.syncSessions([], [], [])
+  const second = await stat(dataFile)
+  assert.equal(second.mtimeMs, first.mtimeMs)
+  // Changing the archive set DOES write.
+  await store.syncSessions([], [], ['new-archived'])
+  const third = await stat(dataFile)
+  assert.notEqual(third.mtimeMs, second.mtimeMs)
+})
+
+test('server map state persists and round-trips across store instances', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-synapse-map-'))
+  const dataFile = join(directory, 'state.json')
+  const store = new WorkspaceStore(dataFile, false)
+  const map = {
+    'session-a': { messages: [{ kind: 'user', text: 'hi', at: '2026-01-01T00:00:00.000Z', sourceSeq: 1 }], cachedAt: 123, title: 'A' },
+    'session-b': { messages: [], cachedAt: 456, title: 'B', parentId: 'loaded:session-a', sourceSeedLength: 3 },
+  }
+  await store.setMap(map)
+  assert.deepEqual(await store.getMap(), map)
+  // A fresh store instance reads the same server map (shared across devices).
+  const reloaded = new WorkspaceStore(dataFile, false)
+  assert.deepEqual(await reloaded.getMap(), map)
 })

@@ -88,6 +88,15 @@ test('renders the refactored detail view with role-based messages', async () => 
   assert.match(message, /message-body/)
 })
 
+test('detail view renders an inline branch/follow-up draft', async () => {
+  const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
+  const thread = source.slice(source.indexOf('function renderThread'), source.indexOf('function render()'))
+
+  assert.match(thread, /detail-draft/)
+  assert.match(thread, /draft\.parentId === thread\.id/)
+  assert.match(thread, /draftActions\(draft\)/)
+})
+
 test('persists dragged card positions and can focus the current session', async () => {
   const source = await readFile(new URL('../app.js', import.meta.url), 'utf8')
 
@@ -103,10 +112,27 @@ test('loads full DSH history into the canvas instead of only post-install projec
   // Client side: a history RPC that opens/pages the session log and returns nodes.
   assert.match(client, /synapse:load-history/)
   assert.match(client, /loadOlder\(\)/)
-  assert.match(client, /messagesFromNodes\(snapshot\.nodes\)/)
+  assert.match(client, /messagesFromNodes\(snapshot\.nodes, atSeq\)/)
   // App side: real cache writes + merge with projected tail.
   assert.match(app, /state\.historyBySession\.set\(thread\.dshSessionId, messages\)/)
   assert.match(app, /function persistedMessagesFor\(thread\)/)
+})
+
+test('fork history is trimmed to the branch tail, not the inherited prefix', async () => {
+  const client = await readFile(new URL('../client.js', import.meta.url), 'utf8')
+  const app = await readFile(new URL('../app.js', import.meta.url), 'utf8')
+
+  // Client trims nodes whose seq <= the fork cut.
+  assert.match(client, /node\.seq < cut/)
+  // App passes the cut through loadSessionToMap and caches it as sourceSeedLength.
+  assert.match(app, /loadSessionToMap\(session\.id, \{ title: session\.title \}, parent, false, draft\.atSeq\)/)
+  assert.match(app, /sourceSeedLength: sourceSeedLength \?\? previous\?\.sourceSeedLength \?\? null/)
+  // When no cut is supplied (sync button), infer the branch boundary from the
+  // first user message that is not part of the parent's history.
+  assert.match(app, /const firstOwnUser = messages\.find\(message => message\.kind === 'user' && !parentUserTexts\.has\(message\.text\)\)/)
+  assert.match(app, /seed = firstOwnUser\.sourceSeq/)
+  // Force-refresh after turn completion preserves the branch cut.
+  assert.match(app, /entry\?\.sourceSeedLength/)
 })
 
 test('map is drag-to-load with localStorage cache, not auto-projection', async () => {
@@ -142,6 +168,16 @@ test('loaded sessions can be unloaded individually or all at once', async () => 
   assert.match(app, /for \(const sessionId of \[\.\.\.state\.loadedSessions\.keys\(\)\]\) unloadSession\(sessionId\)/)
 })
 
+test('a branch card always links to its parent thread, never becomes a new root row', async () => {
+  const app = await readFile(new URL('../app.js', import.meta.url), 'utf8')
+  const cards = app.slice(app.indexOf('function conversationCards'), app.indexOf('function canvasConnectors'))
+
+  // Fallback chain: explicit anchor -> DSH seed boundary -> parent thread's last card.
+  assert.match(cards, /branchAnchors\.get\(card\.dshThreadId\) \?\? inheritedTurn\?\.id \?\? parentCards\?\.at\(-1\)\?\.id \?\? null/)
+  // The comment documents why null must be avoided.
+  assert.match(cards, /never fall back to null/)
+})
+
 test('streaming from another conversation does not rebuild the canvas', async () => {
   const app = await readFile(new URL('../app.js', import.meta.url), 'utf8')
 
@@ -152,6 +188,76 @@ test('streaming from another conversation does not rebuild the canvas', async ()
   // Wheel gestures suppress full re-renders.
   assert.match(app, /wheelGestureUntil = Date\.now\(\) \+ 150/)
   assert.match(app, /Date\.now\(\) >= state\.wheelGestureUntil/)
+})
+
+test('turn completion clears pending reply so cards never stay on 正在回复', async () => {
+  const app = await readFile(new URL('../app.js', import.meta.url), 'utf8')
+
+  // On running=false the pending marker is removed before the history refresh.
+  assert.match(app, /state\.liveReplies\.delete\(data\.sessionId\)[\s\S]*?state\.pendingReplies\.delete\(data\.sessionId\)/)
+  // Pending settlement matches user text without a fragile 2s timestamp window.
+  assert.match(app, /Match by text only\./)
+  assert.doesNotMatch(app, /pending\.at - 2_000/)
+})
+
+test('request ids work outside secure contexts (LAN http)', async () => {
+  const app = await readFile(new URL('../app.js', import.meta.url), 'utf8')
+
+  // A fallback id helper exists and is used for RPC request ids.
+  assert.match(app, /const makeId = \(\) =>/)
+  assert.match(app, /getRandomValues/)
+  assert.match(app, /const requestId = makeId\(\)/)
+  // The direct global call must not appear outside the helper (only inside makeId's guard).
+  const outside = app.replace(/\/\*[\s\S]*?\*\//g, '').replace(/const makeId = \(\) =>[\s\S]*?\n}/, '')
+  assert.doesNotMatch(outside, /crypto\.randomUUID\(\)/)
+})
+
+test('map state syncs to the server so every device sees the same map', async () => {
+  const app = await readFile(new URL('../app.js', import.meta.url), 'utf8')
+  const server = await readFile(new URL('../index.js', import.meta.url), 'utf8')
+
+  // Local changes push to /api/map (debounced).
+  assert.match(app, /fetch\('\/synapse\/api\/map', \{ method: 'PUT'/)
+  assert.match(app, /mapSyncTimer = window\.setTimeout/)
+  // On first open, pull the server map and adopt it. Server is authoritative,
+  // but a pending local push skips the pull so a brand-new local session is
+  // not clobbered before its debounced PUT fires.
+  assert.match(app, /loadServerMap\(\)/)
+  assert.match(app, /if \(mapSyncTimer !== 0\) return false/)
+  // Server map is lightweight metadata; merge it into the local full cache
+  // instead of replacing the heavy message logs.
+  assert.match(app, /state\.loadedSessions = next/)
+  assert.match(app, /hydrateServerMap\(\)/)
+  // Push-based sync: SSE subscription, no polling interval for the map.
+  assert.match(app, /new EventSource\('\/synapse\/api\/map\/events'\)/)
+  assert.match(app, /map-changed/)
+  assert.doesNotMatch(app, /setInterval\(\(\) => \{ void pollServerMap\(\) \}/)
+  // Server broadcasts after a PUT and holds long-lived SSE connections.
+  assert.match(server, /text\/event-stream/)
+  assert.match(server, /broadcastMapChanged\(\)/)
+})
+
+test('sync button pulls server map and auto-adds DSH forks', async () => {
+  const app = await readFile(new URL('../app.js', import.meta.url), 'utf8')
+  const client = await readFile(new URL('../client.js', import.meta.url), 'utf8')
+
+  // Button exists in the top-right controls.
+  assert.match(app, /data-action="sync-forks"/)
+  assert.match(app, /title="同步：拉取服务端地图并自动加入新分支"/)
+  // syncForks pulls server map + scans dshWorkspaces for forks with parentId.
+  // Only forks whose parent is already on the map are auto-added: a sync must
+  // not pull every historical fork/archived conversation onto the canvas.
+  assert.match(app, /async function syncForks\(\)/)
+  assert.match(app, /state\.loadedSessions\.has\(session\.parentId\)/)
+  assert.match(app, /!state\.loadedSessions\.has\(session\.id\)/)
+  // Archived forks are filtered client-side too (in addition to the server).
+  assert.match(app, /!archived\.has\(session\.id\)/)
+  assert.match(app, /loadSessionToMap\(session\.id, \{ title: session\.title \}/)
+  // Client sends parentId + archivedSessionIds so forks/archived can be detected.
+  assert.match(client, /parentId: summary\.parentId \?\? null/)
+  assert.match(client, /archivedSessionIds/)
+  // Subagent/team sessions are excluded from the left library (native sidebar parity).
+  assert.match(client, /summary\.origin === 'subagent'/)
 })
 
 
