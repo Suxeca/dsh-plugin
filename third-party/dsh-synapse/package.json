@@ -12,15 +12,23 @@
   },
   "files": [
     "index.js",
+    "map-store.js",
     "client.js",
     "app.js",
     "deepseek-mark.svg",
     "styles.css",
     "docs/images",
     "cordis.patch.yml",
+    "dsh-plugin.json",
     "README.md",
     "LICENSE"
   ],
+  "dependencies": {
+    "schemastery": "^3.18.0"
+  },
+  "peerDependencies": {
+    "cordis": ">=4.0.0-rc <5"
+  },
   "scripts": {
     "build": "node --check index.js && node --check client.js && node --check app.js",
     "prepare": "pnpm run build",
@@ -30,6 +38,14 @@
     "node": ">=22.19.0"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Suxeca/dsh-synapse.git"
+  },
+  "homepage": "https://github.com/Suxeca/dsh-synapse#readme",
+  "bugs": {
+    "url": "https://github.com/Suxeca/dsh-synapse/issues"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -39,7 +55,7 @@
       "inject": [
         "@deepseek-ai/dsh-client-runtime"
       ],
-      "immediately": false
+      "immediately": true
     }
   }
 }

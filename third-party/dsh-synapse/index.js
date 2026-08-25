@@ -1,9 +1,19 @@
 import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
+import { MapDirectoryStore } from './map-store.js'
+
+import Schema from 'schemastery'
 
 export const name = 'synapse'
-export const inject = ['webServer', 'sessions']
+
+export const Config = Schema.object({
+  dataFile: Schema.string().description('工作区与卡片布局持久化 JSON 路径'),
+  mapDirectory: Schema.string().description('地图书架目录路径'),
+  autoProjection: Schema.boolean().default(true).description('是否自动将提交的会话事件投影为画布卡片'),
+  projectionWorkspaceTitle: Schema.string().default('DSH 任务').description('投影工作区默认标题'),
+  trustedHosts: Schema.array(Schema.string()).default([]).description('额外放行的 Host 名单'),
+})
 
 const MAX_BODY_BYTES = 32 * 1024
 const MAX_TITLE_LENGTH = 120
@@ -14,8 +24,8 @@ const LOCK_STALE_MS = 60_000
 /** JSON persistence for the Synapse workspace graph. */
 export class WorkspaceStore {
   constructor(dataFile, autoProjection = true) {
-    if (typeof dataFile !== 'string' || dataFile.length === 0) throw new Error('synapse: config.dataFile must be a non-empty path')
-    this.dataFile = dataFile
+    this.dataFile = typeof dataFile === 'string' && dataFile.trim().length > 0 ? dataFile : defaultDataFile()
+    this.autoProjection = autoProjection
     this.autoProjection = autoProjection
     this.state = undefined
     this.serial = Promise.resolve()
@@ -42,6 +52,20 @@ export class WorkspaceStore {
     return this.mutate(() => {
       this.state.mapState = mapState
       return structuredClone(this.state.mapState)
+    })
+  }
+
+  /** Server-authoritative card notes shared across devices. */
+  async getNotes() {
+    await this.ready
+    return structuredClone(this.state.cardNotes ?? {})
+  }
+
+  async setNotes(cardNotes) {
+    if (cardNotes === null || typeof cardNotes !== 'object' || Array.isArray(cardNotes)) throw new InputError('cardNotes 必须是对象')
+    return this.mutate(() => {
+      this.state.cardNotes = cardNotes
+      return structuredClone(this.state.cardNotes)
     })
   }
 
@@ -279,7 +303,7 @@ export class WorkspaceStore {
       if (migrated) await this.save()
     } catch (error) {
       if (error?.code !== 'ENOENT') throw new Error(`synapse: cannot read ${this.dataFile}: ${error.message}`)
-      this.state = { version: 4, hiddenSessionIds: [], dsArchivedSessionIds: [], mapState: {}, workspaces: [] }
+      this.state = { version: 4, hiddenSessionIds: [], dsArchivedSessionIds: [], mapState: {}, cardNotes: {}, workspaces: [] }
       await this.save()
     }
   }
@@ -545,7 +569,8 @@ function normalizeState(value) {
     const hiddenSessionIds = Array.isArray(value.hiddenSessionIds) ? value.hiddenSessionIds.filter(item => typeof item === 'string') : []
     const dsArchivedSessionIds = Array.isArray(value.dsArchivedSessionIds) ? value.dsArchivedSessionIds.filter(item => typeof item === 'string') : []
     const mapState = value?.mapState !== null && typeof value?.mapState === 'object' && !Array.isArray(value?.mapState) ? value.mapState : {}
-    migrated = value.version !== 3 || !Array.isArray(value.hiddenSessionIds) || !Array.isArray(value.dsArchivedSessionIds) || !('mapState' in value)
+    const cardNotes = value?.cardNotes !== null && typeof value?.cardNotes === 'object' && !Array.isArray(value?.cardNotes) ? value.cardNotes : {}
+    migrated = value.version !== 3 || !Array.isArray(value.hiddenSessionIds) || !Array.isArray(value.dsArchivedSessionIds) || !('mapState' in value) || !('cardNotes' in value)
     const workspaces = value.workspaces.map(workspace => ({
       ...workspace,
       threads: Array.isArray(workspace.threads) ? workspace.threads.map(thread => {
@@ -560,7 +585,7 @@ function normalizeState(value) {
         return { ...rest, messages: notes }
       }) : [],
     }))
-    state = { ...value, version: 3, hiddenSessionIds, dsArchivedSessionIds, mapState, workspaces }
+    state = { ...value, version: 3, hiddenSessionIds, dsArchivedSessionIds, mapState, cardNotes, workspaces }
   } else if (value?.version === 1 && Array.isArray(value.workspaces)) {
     const now = typeof value.updatedAt === 'string' ? value.updatedAt : new Date().toISOString()
     state = {
@@ -743,57 +768,77 @@ function page() {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Synapse for DSH</title><link rel="stylesheet" href="/synapse/styles.css"></head><body><div id="app"></div><script src="/synapse/app.js"></script></body></html>`
 }
 
-/** Mount Synapse routes on the existing DSH Web Server. */
-export function apply(ctx, config) {
+function defaultDataFile() {
+  const dshHome = process.env.DSH_HOME || (process.env.HOME ? join(process.env.HOME, '.dsh') : '.')
+  return join(dshHome, 'synapse', 'workspaces.json')
+}
+
+/** Mount Synapse routes on the existing DSH Web Server (or soft-degrade in non-web environments). */
+export function apply(ctx, config = {}) {
   const autoProjection = config?.autoProjection !== false
-  const store = new WorkspaceStore(config?.dataFile, autoProjection)
+  const dataFile = typeof config?.dataFile === 'string' && config.dataFile.trim() !== ''
+    ? config.dataFile
+    : defaultDataFile()
+  const store = new WorkspaceStore(dataFile, autoProjection)
+  // Existing profiles predate mapDirectory; derive a sibling directory so a
+  // hot upgrade remains backward compatible until their patch is refreshed.
+  const mapDirectory = typeof config?.mapDirectory === 'string' && config.mapDirectory.trim() !== ''
+    ? config.mapDirectory
+    : join(dirname(store.dataFile), 'maps')
+  const mapStore = new MapDirectoryStore(mapDirectory, store)
   const projectionWorkspaceTitle = typeof config?.projectionWorkspaceTitle === 'string' && config.projectionWorkspaceTitle.trim() !== ''
     ? config.projectionWorkspaceTitle.trim().slice(0, MAX_TITLE_LENGTH)
     : 'DSH 任务'
   const reportProjectionFailure = error => {
-    ctx.logger.warn(error instanceof Error ? error : new Error(String(error)))
+    ctx.logger?.warn?.(error instanceof Error ? error : new Error(String(error)))
   }
-  const replaySession = session => {
-    // Forks inherit their parent's log. The canvas already represents that
-    // history through the parent node, so only project the child's live tail.
-    const replayFrom = session.header?.parentSession === undefined ? 0 : session.firstLiveSeq
-    void store.projectSession(session, replayFrom, projectionWorkspaceTitle).catch(reportProjectionFailure)
+
+  // 1. Soft-probe sessions service for auto-projection
+  const sessionsService = ctx.get ? ctx.get('sessions', false) : ctx.sessions
+  if (autoProjection && sessionsService) {
+    const replaySession = session => {
+      const replayFrom = session.header?.parentSession === undefined ? 0 : session.firstLiveSeq
+      void store.projectSession(session, replayFrom, projectionWorkspaceTitle).catch(reportProjectionFailure)
+    }
+    const projectionQueue = []
+    let projectionScheduled = false
+    const enqueueProjection = (session, event) => {
+      projectionQueue.push({ session, event })
+      if (projectionScheduled) return
+      projectionScheduled = true
+      queueMicrotask(() => {
+        projectionScheduled = false
+        const batch = projectionQueue.splice(0)
+        const bySession = new Map()
+        for (const item of batch) {
+          const entry = bySession.get(item.session.id)
+          if (entry === undefined) bySession.set(item.session.id, [item.session, [item.event]])
+          else entry[1].push(item.event)
+        }
+        for (const [sessionId, [session, events]] of bySession) {
+          void store.projectEvents(session, events, projectionWorkspaceTitle).catch(reportProjectionFailure)
+        }
+      })
+    }
+    if (typeof ctx.on === 'function') {
+      ctx.on('session/created', replaySession)
+      ctx.on('session/event', enqueueProjection)
+    }
+    if (typeof sessionsService.list === 'function') {
+      for (const session of sessionsService.list()) replaySession(session)
+    }
   }
-  // Buffer live events per session and flush them in one write per microtask,
-  // so a burst of turn events coalesces into a single save instead of N.
-  const projectionQueue = []
-  let projectionScheduled = false
-  const enqueueProjection = (session, event) => {
-    projectionQueue.push({ session, event })
-    if (projectionScheduled) return
-    projectionScheduled = true
-    queueMicrotask(() => {
-      projectionScheduled = false
-      const batch = projectionQueue.splice(0)
-      const bySession = new Map()
-      for (const item of batch) {
-        const entry = bySession.get(item.session.id)
-        if (entry === undefined) bySession.set(item.session.id, [item.session, [item.event]])
-        else entry[1].push(item.event)
-      }
-      for (const [sessionId, [session, events]] of bySession) {
-        void store.projectEvents(session, events, projectionWorkspaceTitle).catch(reportProjectionFailure)
-      }
-    })
+
+  // 2. Soft-probe tuiStatus service (dsh-TUI ecosystem seam)
+  const tuiStatus = ctx.get ? ctx.get('tuiStatus', false) : ctx.tuiStatus
+  if (tuiStatus && typeof tuiStatus.set === 'function') {
+    const disposeStatus = tuiStatus.set('synapse', '会话地图:就绪')
+    if (typeof ctx.effect === 'function') {
+      ctx.effect(() => () => disposeStatus?.(), 'synapse: tui-status')
+    }
   }
-  if (autoProjection) {
-    ctx.on('session/created', replaySession)
-    ctx.on('session/event', enqueueProjection)
-    for (const session of ctx.sessions.list()) replaySession(session)
-  }
-  // The DSH /api browser-trust fence does not cover /synapse routes, so this
-  // handler checks the Host header itself: localhost is allowed by default and
-  // additional authorities opt in through config.trustedHosts (mirrors the
-  // fence's DNS-rebinding defense).
-  const trustedHosts = new Set(['localhost', '127.0.0.1', ...[...(config?.trustedHosts ?? [])].map(host => String(host).trim().toLowerCase()).filter(Boolean)])
-  // ── Server-Sent Events: push map changes to all connected Synapse clients ──
-  // Long-lived connections, no polling. A client only refetches /api/map when
-  // another device actually changes the map.
+
+  // 3. Server-Sent Events clients management with lifecycle disposal
   const mapClients = new Set()
   const broadcastMapChanged = () => {
     const payload = `event: map-changed\ndata: ${Date.now()}\n\n`
@@ -801,84 +846,129 @@ export function apply(ctx, config) {
       try { res.write(payload) } catch { /* client gone; cleaned up on close */ }
     }
   }
-  const api = async (req, res) => {
-    try {
-      const hostname = (typeof req.headers.host === 'string' ? req.headers.host : '').replace(/:\d+$/, '').toLowerCase()
-      if (!trustedHosts.has(hostname)) return sendJson(res, 403, { error: '不被信任的 Host' })
-      const path = new URL(req.url ?? '/', 'http://dsh.local').pathname
-      if (path === '/synapse/api/reset' && req.method === 'POST') return sendJson(res, 200, await store.clearLegacy(ctx.sessions.list()))
-      if (path === '/synapse/api/workspaces') {
-        if (req.method === 'GET') return sendJson(res, 200, { workspaces: await store.list() })
-        if (req.method === 'POST') return sendJson(res, 201, { workspace: await store.create((await readJson(req)).title) })
+  if (typeof ctx.effect === 'function') {
+    ctx.effect(() => () => {
+      for (const client of mapClients) {
+        try { client.end() } catch {}
       }
-      const workspace = /^\/synapse\/api\/workspaces\/([0-9a-f-]+)$/i.exec(path)
-      if (workspace !== null) {
-        if (req.method === 'GET') return sendJson(res, 200, { workspace: await store.get(workspace[1]) })
-        if (req.method === 'POST') return sendJson(res, 201, { thread: await store.createThread(workspace[1], await readJson(req)) })
-      }
-      const branch = /^\/synapse\/api\/threads\/([0-9a-f-]+)\/branch$/i.exec(path)
-      if (branch !== null && req.method === 'POST') return sendJson(res, 201, { thread: await store.branch(branch[1], await readJson(req)) })
-      if (path === '/synapse/api/sessions/sync' && req.method === 'POST') { const body = await readJson(req); return sendJson(res, 200, { workspaces: await store.syncSessions(body.sessions, body.removedSessionIds, body.archivedSessionIds) }) }
-      if (path === '/synapse/api/sessions' && req.method === 'GET') {
-        // DSH session list (id, title, parentId) so the client sync button can
-        // auto-add forks without depending on the parent page's workspace push
-        // (which may not have arrived yet on a remote device).
-        //
-        // Exclude sessions the user archived natively in DSH. The archived set
-        // is mirrored here by the client's /sessions/sync POST; filtering at
-        // the source means the sync button can never resurrect archived
-        // conversations just because they still exist in ctx.sessions.list().
-        const archived = new Set(store.state.dsArchivedSessionIds ?? [])
-        const sessions = ctx.sessions.list()
-          .filter(session => !archived.has(session.id))
-          .map(session => ({
-            id: session.id,
-            title: typeof session.title === 'string' ? session.title : null,
-            cwd: session.header?.meta?.cwd ?? session.header?.cwd ?? null,
-            parentId: typeof session.header?.parentSession === 'string' ? session.header.parentSession : null,
-            seedLength: Number.isSafeInteger(session.header?.seedLength) ? session.header.seedLength : null,
-          }))
-        return sendJson(res, 200, { sessions })
-      }
-      if (path === '/synapse/api/map') {
-        if (req.method === 'GET') return sendJson(res, 200, { map: await store.getMap() })
-        if (req.method === 'PUT') {
-          const map = await store.setMap((await readJson(req)).map)
+      mapClients.clear()
+    }, 'synapse: sse clients cleanup')
+  }
+
+  // 4. Soft-probe webServer service (HTTP routes)
+  const webServer = ctx.get ? ctx.get('webServer', false) : ctx.webServer
+  if (webServer && typeof webServer.register === 'function') {
+    const trustedHosts = new Set(['localhost', '127.0.0.1', ...[...(config?.trustedHosts ?? [])].map(host => String(host).trim().toLowerCase()).filter(Boolean)])
+    const getSessionList = () => {
+      const liveSessions = sessionsService && typeof sessionsService.list === 'function' ? sessionsService.list() : []
+      return liveSessions
+    }
+    const api = async (req, res) => {
+      try {
+        const hostname = (typeof req.headers.host === 'string' ? req.headers.host : '').replace(/:\d+$/, '').toLowerCase()
+        if (!trustedHosts.has(hostname)) return sendJson(res, 403, { error: '不被信任的 Host' })
+        const path = new URL(req.url ?? '/', 'http://dsh.local').pathname
+        if (path === '/synapse/api/reset' && req.method === 'POST') return sendJson(res, 200, await store.clearLegacy(getSessionList()))
+        if (path === '/synapse/api/workspaces') {
+          if (req.method === 'GET') return sendJson(res, 200, { workspaces: await store.list() })
+          if (req.method === 'POST') return sendJson(res, 201, { workspace: await store.create((await readJson(req)).title) })
+        }
+        const workspace = /^\/synapse\/api\/workspaces\/([0-9a-f-]+)$/i.exec(path)
+        if (workspace !== null) {
+          if (req.method === 'GET') return sendJson(res, 200, { workspace: await store.get(workspace[1]) })
+          if (req.method === 'POST') return sendJson(res, 201, { thread: await store.createThread(workspace[1], await readJson(req)) })
+        }
+        const branch = /^\/synapse\/api\/threads\/([0-9a-f-]+)\/branch$/i.exec(path)
+        if (branch !== null && req.method === 'POST') return sendJson(res, 201, { thread: await store.branch(branch[1], await readJson(req)) })
+        if (path === '/synapse/api/sessions/sync' && req.method === 'POST') { const body = await readJson(req); return sendJson(res, 200, { workspaces: await store.syncSessions(body.sessions, body.removedSessionIds, body.archivedSessionIds) }) }
+        if (path === '/synapse/api/sessions' && req.method === 'GET') {
+          const archived = new Set(store.state.dsArchivedSessionIds ?? [])
+          const sessions = getSessionList()
+            .filter(session => !archived.has(session.id))
+            .map(session => ({
+              id: session.id,
+              title: typeof session.title === 'string' ? session.title : null,
+              cwd: session.header?.meta?.cwd ?? session.header?.cwd ?? null,
+              parentId: typeof session.header?.parentSession === 'string' ? session.header.parentSession : null,
+              seedLength: Number.isSafeInteger(session.header?.seedLength) ? session.header.seedLength : null,
+            }))
+          return sendJson(res, 200, { sessions })
+        }
+        if (path === '/synapse/api/maps') {
+          if (req.method === 'GET') return sendJson(res, 200, { maps: await mapStore.list() })
+          if (req.method === 'POST') {
+            const map = await mapStore.create((await readJson(req)).title)
+            broadcastMapChanged()
+            return sendJson(res, 201, { map })
+          }
+        }
+        const mapActivation = /^\/synapse\/api\/maps\/([a-z0-9-]+)\/activate$/i.exec(path)
+        if (mapActivation !== null && req.method === 'POST') {
+          const map = await mapStore.select(mapActivation[1])
           broadcastMapChanged()
           return sendJson(res, 200, { map })
         }
+        const mapItem = /^\/synapse\/api\/maps\/([a-z0-9-]+)$/i.exec(path)
+        if (mapItem !== null) {
+          if (req.method === 'PATCH') {
+            const body = await readJson(req)
+            const map = await mapStore.rename(mapItem[1], body.title)
+            broadcastMapChanged()
+            return sendJson(res, 200, { map })
+          }
+          if (req.method === 'DELETE') {
+            const result = await mapStore.delete(mapItem[1])
+            broadcastMapChanged()
+            return sendJson(res, 200, result)
+          }
+        }
+        if (path === '/synapse/api/map') {
+          if (req.method === 'GET') return sendJson(res, 200, await mapStore.getState())
+          if (req.method === 'PUT') {
+            const body = await readJson(req)
+            const result = await mapStore.setState(body?.map, body?.notes)
+            broadcastMapChanged()
+            return sendJson(res, 200, result)
+          }
+        }
+        if (path === '/synapse/api/map/events') {
+          if (req.method !== 'GET') return sendJson(res, 405, { error: '方法不允许' })
+          res.writeHead(200, {
+            'content-type': 'text/event-stream; charset=utf-8',
+            'cache-control': 'no-store',
+            connection: 'keep-alive',
+            'x-accel-buffering': 'no',
+          })
+          res.write('retry: 3000\n\n')
+          mapClients.add(res)
+          req.on('close', () => { mapClients.delete(res) })
+          return undefined
+        }
+        const messages = /^\/synapse\/api\/threads\/([0-9a-f-]+)\/messages$/i.exec(path)
+        if (messages !== null && req.method === 'POST') return sendJson(res, 201, { thread: await store.addMessage(messages[1], (await readJson(req)).text) })
+        const thread = /^\/synapse\/api\/threads\/([0-9a-f-]+)$/i.exec(path)
+        if (thread !== null && req.method === 'PATCH') return sendJson(res, 200, { thread: await store.updateThread(thread[1], await readJson(req)) })
+        if (thread !== null && req.method === 'DELETE') return sendJson(res, 200, await store.removeThread(thread[1]))
+        return sendJson(res, 404, { error: '接口不存在' })
+      } catch (error) {
+        if (error instanceof InputError) return sendJson(res, 400, { error: error.message })
+        if (error instanceof NotFoundError) return sendJson(res, 404, { error: error.message })
+        ctx.logger?.error?.(error instanceof Error ? error : new Error(String(error)))
+        return sendJson(res, 500, { error: 'Synapse 数据暂时不可用' })
       }
-      if (path === '/synapse/api/map/events') {
-        if (req.method !== 'GET') return sendJson(res, 405, { error: '方法不允许' })
-        // SSE stream: keep open, notify on map changes, drop on client close.
-        res.writeHead(200, {
-          'content-type': 'text/event-stream; charset=utf-8',
-          'cache-control': 'no-store',
-          connection: 'keep-alive',
-          'x-accel-buffering': 'no',
-        })
-        res.write('retry: 3000\n\n')
-        mapClients.add(res)
-        req.on('close', () => { mapClients.delete(res) })
-        return undefined
-      }
-      const messages = /^\/synapse\/api\/threads\/([0-9a-f-]+)\/messages$/i.exec(path)
-      if (messages !== null && req.method === 'POST') return sendJson(res, 201, { thread: await store.addMessage(messages[1], (await readJson(req)).text) })
-      const thread = /^\/synapse\/api\/threads\/([0-9a-f-]+)$/i.exec(path)
-      if (thread !== null && req.method === 'PATCH') return sendJson(res, 200, { thread: await store.updateThread(thread[1], await readJson(req)) })
-      if (thread !== null && req.method === 'DELETE') return sendJson(res, 200, await store.removeThread(thread[1]))
-      return sendJson(res, 404, { error: '接口不存在' })
-    } catch (error) {
-      if (error instanceof InputError) return sendJson(res, 400, { error: error.message })
-      if (error instanceof NotFoundError) return sendJson(res, 404, { error: error.message })
-      ctx.logger.error(error instanceof Error ? error : new Error(String(error)))
-      return sendJson(res, 500, { error: 'Synapse 数据暂时不可用' })
     }
+    const registerRoute = (kind, path, handler, label) => {
+      if (typeof ctx.effect === 'function') {
+        ctx.effect(() => webServer.register({ kind, path, handler }), label)
+      } else {
+        webServer.register({ kind, path, handler })
+      }
+    }
+    registerRoute('exact', '/synapse', (_req, res) => { res.writeHead(302, { location: '/synapse/' }); res.end() }, 'synapse: redirect')
+    registerRoute('exact', '/synapse/', (_req, res) => { sendFile(res, 'text/html; charset=utf-8', page()) }, 'synapse: page')
+    registerRoute('exact', '/synapse/app.js', async (_req, res) => { sendFile(res, 'text/javascript; charset=utf-8', await readFile(new URL('./app.js', import.meta.url), 'utf8')) }, 'synapse: app')
+    registerRoute('exact', '/synapse/styles.css', async (_req, res) => { sendFile(res, 'text/css; charset=utf-8', await readFile(new URL('./styles.css', import.meta.url), 'utf8')) }, 'synapse: styles')
+    registerRoute('exact', '/synapse/deepseek-mark.svg', async (_req, res) => { sendFile(res, 'image/svg+xml', await readFile(new URL('./deepseek-mark.svg', import.meta.url), 'utf8')) }, 'synapse: DeepSeek mark')
+    registerRoute('prefix', '/synapse/api', api, 'synapse: api')
   }
-  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/synapse', handler: (_req, res) => { res.writeHead(302, { location: '/synapse/' }); res.end() } }), 'synapse: redirect')
-  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/synapse/', handler: (_req, res) => { sendFile(res, 'text/html; charset=utf-8', page()) } }), 'synapse: page')
-  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/synapse/app.js', handler: async (_req, res) => { sendFile(res, 'text/javascript; charset=utf-8', await readFile(new URL('./app.js', import.meta.url), 'utf8')) } }), 'synapse: app')
-  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/synapse/styles.css', handler: async (_req, res) => { sendFile(res, 'text/css; charset=utf-8', await readFile(new URL('./styles.css', import.meta.url), 'utf8')) } }), 'synapse: styles')
-  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/synapse/deepseek-mark.svg', handler: async (_req, res) => { sendFile(res, 'image/svg+xml', await readFile(new URL('./deepseek-mark.svg', import.meta.url), 'utf8')) } }), 'synapse: DeepSeek mark')
-  ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/synapse/api', handler: api }), 'synapse: api')
 }

@@ -283,7 +283,12 @@ test('server map state persists and round-trips across store instances', async (
   }
   await store.setMap(map)
   assert.deepEqual(await store.getMap(), map)
-  // A fresh store instance reads the same server map (shared across devices).
+  // Card notes also persist and round-trip across store instances for remote sync.
+  const notes = { 'loaded:session-a:turn:1': '这是第一条核心架构决策' }
+  await store.setNotes(notes)
+  assert.deepEqual(await store.getNotes(), notes)
+  // A fresh store instance reads the same server map and notes (shared across devices).
   const reloaded = new WorkspaceStore(dataFile, false)
   assert.deepEqual(await reloaded.getMap(), map)
+  assert.deepEqual(await reloaded.getNotes(), notes)
 })

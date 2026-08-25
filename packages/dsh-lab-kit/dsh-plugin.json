@@ -1,0 +1,33 @@
+{
+  "$schema": "https://dsh.community/schemas/dsh-plugin-0.15.json",
+  "manifestVersion": "0.15",
+  "id": "com.deepseek-ai.dsh-lab-kit",
+  "name": "dsh-lab-kit",
+  "version": "0.1.0",
+  "facets": {
+    "host": {
+      "entry": "lib/index.js",
+      "apiVersion": "v1alpha1"
+    }
+  },
+  "requires": {
+    "contracts": [
+      {
+        "apiVersion": "commands.dsh/v1alpha1",
+        "kind": "Command",
+        "optional": true,
+        "fallback": "run without custom commands"
+      }
+    ]
+  },
+  "permissions": [],
+  "contributes": {
+    "commands": []
+  },
+  "subscriptions": [],
+  "license": "BSD-3-Clause",
+  "source": {
+    "repository": "https://github.com/suxeca/dsh-plugin",
+    "revision": "main"
+  }
+}
