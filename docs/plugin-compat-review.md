@@ -1,5 +1,11 @@
 # DSH 插件生态兼容性评审报告（最终版）
 
+> ⚠️ **历史快照（2026-08-19，基线 DSH 0.1.0-rc.6 / ui-slots rc.6）——不要据此判断当前状态。**
+> 此后宿主已升级到 `0.1.5-rc.1`，并删除了 6 个插件（`dsh-better-sidebar`、`dsh-lab-kit`、
+> `dsh-conversation-share`、`dsh-gpt-compat`、`dsh-voice-input`、`dsh-vision-toolkit`）与
+> `dsh-agent-teams`；`dsh-client-runtime` 为退役包。
+> 当前结论请看 `plugin-update-audit-2026-09-10.md` 与 `upgrade-scan-2026-09-10.md`。
+
 - 评审人：reviewer（team plugin-compat-review，task t4 综合评审）
 - 日期：2026-08-19
 - 输入：host-auditor（t1）/ client-auditor（t2）/ context-auditor（t3）三份审计报告 + 我方的交叉验证（只读代码/路由探针，未修改任何文件）

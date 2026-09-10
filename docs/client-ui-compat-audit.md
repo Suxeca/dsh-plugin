@@ -1,5 +1,11 @@
 # Client 侧 UI 兼容性审计（dsh-plugin 生态）
 
+> ⚠️ **历史快照（2026-08-19，基线 DSH 0.1.0-rc.6 / ui-slots rc.6）——不要据此判断当前状态。**
+> 此后宿主已升级到 `0.1.5-rc.1`，并删除了 6 个插件（`dsh-better-sidebar`、`dsh-lab-kit`、
+> `dsh-conversation-share`、`dsh-gpt-compat`、`dsh-voice-input`、`dsh-vision-toolkit`）与
+> `dsh-agent-teams`；`dsh-client-runtime` 为退役包。
+> 当前结论请看 `plugin-update-audit-2026-09-10.md` 与 `upgrade-scan-2026-09-10.md`。
+
 - 审计人：client-auditor（team plugin-compat-review，task t2）
 - 日期：2026-08-19
 - 范围：侧边栏 Tab / 设置页 / 快捷键 / 命令 / UI slot / 样式，共 13 个已装配插件的 client half

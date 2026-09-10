@@ -2,6 +2,27 @@
 
 > 生成时间：2026-08-19 16:20
 > 目标：大更新前梳理「需要更新/提交/清理」的内容，供仓库所有者确认。
+>
+> **状态更新（2026-09-08）**：本文中的 `dsh-agent-teams` 相关条目已失效——该插件（含
+> `third-party/dsh-agent-teams/` 快照、`.agent-teams/` 运行时归档、profile junction）已于当日
+> 彻底删除，无需再考虑「add 进仓库 / 转 submodule / 加 gitignore」。其余条目状态未变。
+>
+> 同日追加：`dsh-vision-toolkit` 亦已彻底删除 —— 双源副本（`third-party/dsh-vision-toolkit`
+> 工作树 @0.1.6 与 `~/Workspace/dsh-vision-toolkit` link 装载源 @0.1.2）、制品目录
+> `.dsh-vision-toolkit/`、托管 Python runtime `~/.dsh/cache/dsh-vision-toolkit`（159 MB）
+> 以及 profile 的 lock/package-map 条目全部清空；本文第 19 行的 `[submodule] dsh-vision-toolkit`
+> 与 `plugin-compat-review.md` 的 M3（双源漂移）议题一并作废。
+>
+> **状态更新（2026-09-10）**：DSH 宿主已升级到 `dsh-v0.1.5-rc.1`。当日又删除 4 个插件：
+> `dsh-better-sidebar`（改用官方原生右侧栏）、**`dsh-lab-kit`**、**`@bill9109/dsh-conversation-share`**
+> （含 submodule 登记与 `.git/modules` 对象库）、**`dsh-gpt-compat`**、**`@dsh-external/dsh-voice-input`**；
+> 退役包 `@deepseek-ai/dsh-client-runtime` 的引用亦已全仓清除。
+> 因此**本文第一节的目录树、第 81 行的 conversation-share 二选一议题、第 90 行的 active 清单
+> 均已过时**，仅作历史记录保留。当前真实结构见 `README.md` 的「目录结构」节；
+> 当日审计与逐插件结论见 `plugin-update-audit-2026-09-10.md`。
+>
+> 新增：`packages/dsh-external-dirs`（官方侧边栏「外部目录」tab）；`dsh-custom-thinking` 已从
+> 手工 symlink 树迁移到 pnpm devDependencies。
 
 ---
 

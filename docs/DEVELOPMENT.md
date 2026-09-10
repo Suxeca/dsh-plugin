@@ -14,7 +14,7 @@ dsh-plugin/
 │   └── web-platform.ts     # 浏览器平台模块表（react / cordis / slots 等 externals）
 ├── docs/DEVELOPMENT.md     # 本文档
 └── packages/
-    ├── dsh-lab-kit/                    # 示例插件：科研台 Lab Cockpit（第一个插件，照抄它起步）
+    ├── dsh-external-dirs/              # 全功能范例：官方侧边栏 tab + host 路由 + settings 持久化（pnpm devDeps）
     └── dsh-client-ui-session-switcher/ # 会话切换面板：Ctrl+Shift+K 调色板（纯 client 插件范例，带 vitest 单测）
 ```
 
@@ -34,10 +34,10 @@ dsh-plugin/
 ### 1. 复制模板
 
 ```sh
-cp -r packages/dsh-lab-kit packages/dsh-my-plugin
+cp -r packages/dsh-external-dirs packages/dsh-my-plugin
 ```
 
-按需改名 `@deepseek-ai/dsh-my-plugin`（package.json、cordis.patch.yml、tsdown.config.ts 三处）。
+按需改名 `@suxeca/dsh-my-plugin`（`package.json`、`cordis.patch.yml`、`tsdown.config.ts` 三处）。
 
 ### 2. 包内文件
 
@@ -90,19 +90,25 @@ pnpm dsh plugin --profile web remove @deepseek-ai/dsh-my-plugin
 
 | 想做什么 | 扩展点 | 参考实现 |
 |---|---|---|
-| 注册 HTTP 路由（client 可 fetch） | `ctx.webServer.register({ kind: 'prefix'\|'exact', path, handler })` | `dsh-lab-kit/src/host/routes.ts` |
-| 读取当前工作区 | `ctx.workspaceRegistry.list()` | `dsh-lab-kit/src/host/projects-service.ts` |
-| 向模型宣布插件存在 | `ctx.systemPrompt.section({ name, order, text })` | `dsh-lab-kit/src/index.ts` |
+| 注册 HTTP 路由（client 可 fetch） | `ctx.webServer.register({ kind: 'prefix'\|'exact', path, handler })` | `dsh-external-dirs/src/host/routes.ts`（含 `connection.requestRejection` 信任围栏）、`dsh-pdf-drop/src/host/routes.ts` |
+| 持久化插件设置 | `ctx.settings.register(ns, schema, { applies: 'live' })` → `get()` / `update()`（**命名空间必须 kebab-case**） | `dsh-external-dirs/src/index.ts` |
+| **注册官方右侧栏 tab 类型** | `ctx.sidebarRightTabs.register({ id, kind, patterns?, title, guide? })` + `slots.register({ name: 'sidebar.right.pane.tab', key: id })` | `dsh-external-dirs/src/client/index.ts`、官方 `packages/client/ui-sidebar-files/` |
+| 读取当前工作区 | `ctx.workspaceRegistry.list()` | ⚠️ 原参考 `dsh-lab-kit` 已删；类型仍在（`@deepseek-ai/dsh-workspace`） |
+| 向模型宣布插件存在 | `ctx.systemPrompt.section({ name, order, text })` | `dsh-super-injector/src/index.ts` |
 | 注册模型可见工具 | `ctx.tools.register()` / `defineTool` | deepseek-harness `packages/tool-*/` |
 | 工具调用前钩子（权限门禁） | `ctx.on('tools/pre-execute', …)` | cookbook：钩子插件 |
 | 监听会话事件流 | `ctx.on('session/event', …)` | cookbook：UI 插件 |
-| 侧边栏入口（DOM 注入自愈） | `[data-pane="sidebar"]` + MutationObserver | `dsh-lab-kit/src/client/sidebar-entry.ts` |
-| 中心列面板（覆盖聊天区） | `[data-pane="conversation"]` + html 属性切换 | `dsh-lab-kit/src/client/cockpit-mount.tsx` |
+| 侧边栏入口（DOM 注入自愈） | `[data-pane="sidebar"]` + MutationObserver | ⚠️ 原参考 `dsh-lab-kit` 已删；现有 UI 插件改用官方 slot/tab 注册 |
+| 中心列面板（覆盖聊天区） | `[data-pane="conversation"]` + html 属性切换 | ⚠️ 原参考 `dsh-lab-kit` 已删；rc.1 起官方推荐 `main` slot + `sidebar.panellist` |
 | 全局快捷键 + 独立 React root | `window.addEventListener('keydown')` + `createRoot` | `dsh-client-ui-session-switcher/src/client/index.ts` |
 | 可选服务（未 inject） | `ctx.get('name')`——Cordis ctx 是 Proxy，未 inject 的属性**裸访问即抛错**（类型断言编译后不生效）；且要在**按键/事件时**解析，`apply()` 一次性捕获会因启动顺序拿到 undefined | `dsh-client-ui-session-switcher/src/client/index.ts` |
-| 设置卡片（设置 > 插件配置） | `ctx.slots.inject('web-ui.plugin.item', …)` | dsh-task-board / dsh-live-stats |
-| 中文语言包 | `ctx.locale.register(NS, { zh, en })` | dsh-task-board/src/client/locales.ts |
+| 设置卡片（设置 > 插件配置） | `ctx.slots.inject('web-ui.plugin.item', …)` | ⚠️ 参考实现不在本仓库 |
+| 中文语言包 | `ctx.locale.register(NS, { zh, en })` | 官方 `packages/client/locale/` |
 | 注册模型工具以外的服务 | `export class X extends Service`（类插件） | cordis 教程第 3 章 |
+
+> ⚠️ 标记的几行原以 `dsh-lab-kit` 为范例，该插件已于 2026-09-10 卸载删除（`packages/dsh-lab-kit/`），
+> 表内保留说明以免误导；新插件请照 `dsh-external-dirs`（host 路由 + settings + 官方 tab 注册）
+> 与 `dsh-client-ui-session-switcher`（纯 client + 快捷键 + 可选服务）两个现存范例起步。
 
 ## 构建与运行时约定
 
