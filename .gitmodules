@@ -1,14 +1,6 @@
-[submodule "third-party/dsh-vision-toolkit"]
-	path = third-party/dsh-vision-toolkit
-	url = https://github.com/Anionex/dsh-vision-toolkit.git
-	branch = main
 [submodule "third-party/sage-mem"]
 	path = third-party/sage-mem
 	url = https://github.com/gezi-wen/sage-mem.git
-	branch = main
-[submodule "third-party/dsh-conversation-share"]
-	path = third-party/dsh-conversation-share
-	url = https://github.com/bill9109/dsh-conversation-share.git
 	branch = main
 [submodule "third-party/dsh-super-injector"]
 	path = third-party/dsh-super-injector
