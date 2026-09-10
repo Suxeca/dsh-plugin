@@ -91,27 +91,28 @@ export interface SwitcherContext {
  * upstream ILayout: only the actions this plugin dispatches. Resolved
  * lazily — the switcher must keep working when ui-layout is absent (non-web
  * profiles), so the boundary cast stays optional at the call site.
+ *
+ * 0.1.5-rc.1 dropped the left/right fullscreen trio
+ * (`isLeftFullscreen` / `setLeftFullscreen` / `toggleLeftFullscreen`) from
+ * ILayout, so the fullscreen chords are gone rather than silently calling a
+ * method that no longer exists.
  */
 export interface LayoutPort {
   toggleSidebar(): void
-  isLeftFullscreen(): boolean
-  setLeftFullscreen(fullscreen: boolean): void
-  toggleLeftFullscreen(): void
 }
 
 /**
- * The better-sidebar face the workbench chords call (ctx.betterSidebar,
- * v0.12.0+ panelControl capability). Resolved lazily like LayoutPort: the
- * switcher degrades gracefully when the workbench plugin is not installed.
+ * The native right column's face (ctx.sidebarRight, ui-sidebar-right). It
+ * replaced the third-party better-sidebar workbench in 0.1.5-rc.1, so the
+ * right-sidebar chord now drives the column DSH itself ships. Resolved lazily
+ * like LayoutPort: the switcher degrades gracefully when the column plugin is
+ * absent.
  */
-export interface BetterSidebarPort {
-  togglePanel(): void
-  toggleBottomPanel(): void
-  setFullscreen(fullscreen: boolean): void
-  toggleFullscreen(): void
-  /** Toggle the bottom panel; opening focuses a UI terminal there (mint if absent). */
-  toggleBottomTerminal(): void
-  getSnapshot(): { state?: { fullscreen?: boolean } | undefined }
+export interface SidebarRightPort {
+  /** Whether the column shows its panel (`true`) or is collapsed to its rail. */
+  isExpanded(): boolean
+  /** Collapse an expanded column, or expand a collapsed one. */
+  toggleExpanded(): void
 }
 
 /** A root session decorated with its owning workspace (undefined = unaccounted). */

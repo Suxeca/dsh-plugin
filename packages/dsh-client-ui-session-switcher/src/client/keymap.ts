@@ -7,9 +7,9 @@
  * is a fixed fullscreen-exit chord (never rebindable — universal muscle
  * memory).
  *
- * The layout chords drive the DSH frame (left sidebar) and the better-sidebar
- * workbench (right panel + bottom panel + fullscreen) through their public
- * services; actions no-op cleanly when the target service is not installed.
+ * The layout chords drive the DSH frame (left sidebar) and DSH's own right
+ * column through their public services; actions no-op cleanly when the target
+ * service is not installed.
  * @module @suxeca/dsh-client-ui-session-switcher/client/keymap
  */
 
@@ -20,9 +20,6 @@ export const ACTIONS = [
   'prev',
   'toggleLeftSidebar',
   'toggleRightSidebar',
-  'toggleBottom',
-  'fullscreenLeft',
-  'fullscreenRight',
   'toggleSessionMap',
 ] as const
 export type ActionId = (typeof ACTIONS)[number]
@@ -42,10 +39,7 @@ export const ACTION_LABELS: Record<ActionId, string> = {
   next: '下一个对话',
   prev: '上一个对话',
   toggleLeftSidebar: '折叠/展开左侧栏',
-  toggleRightSidebar: '折叠/展开右侧栏（工作台）',
-  toggleBottom: '折叠底栏 / 展开并聚焦终端',
-  fullscreenLeft: '左侧栏全屏',
-  fullscreenRight: '右侧栏全屏',
+  toggleRightSidebar: '折叠/展开右侧栏',
   toggleSessionMap: '切换 对话/会话地图',
 }
 
@@ -87,12 +81,9 @@ export function defaultBindings(): Record<ActionId, Binding> {
     next: { key: ']', ...primary(), shift: false, alt: false },
     prev: { key: '[', ...primary(), shift: false, alt: false },
     // VSCode-style: Ctrl/Cmd+B = toggle sidebar; Shift flips to the right
-    // workbench; Ctrl/Cmd+J = toggle the bottom panel.
+    // column DSH itself ships.
     toggleLeftSidebar: { key: 'b', ...primary(), shift: false, alt: false },
     toggleRightSidebar: { key: 'b', ...primary(), shift: true, alt: false },
-    toggleBottom: { key: 'j', ...primary(), shift: false, alt: false },
-    fullscreenLeft: { key: 'l', ctrl: false, shift: true, alt: true, meta: false },
-    fullscreenRight: { key: 'r', ctrl: false, shift: true, alt: true, meta: false },
     // Ctrl/Cmd+Shift+M = toggle between the normal conversation and the
     // dsh-synapse conversation-map view (M = Map).
     toggleSessionMap: { key: 'm', ...primary(), shift: true, alt: false },

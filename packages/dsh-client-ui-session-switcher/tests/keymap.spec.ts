@@ -61,24 +61,21 @@ describe('isModifierKey', () => {
 })
 
 describe('defaultBindings', () => {
-  it('has all actions with the pre-existing + VSCode-style chords (non-Mac)', () => {
+  it('has all actions with the palette + VSCode-style layout chords (non-Mac)', () => {
     const d = defaultBindings()
     expect(d.toggle).toMatchObject({ key: 'k', ctrl: true, meta: false })
     expect(d.next).toMatchObject({ key: ']', ctrl: true })
     expect(d.prev).toMatchObject({ key: '[', ctrl: true })
-    // Layout chords: Ctrl+B left / Ctrl+Shift+B right / Ctrl+J bottom,
-    // Alt+Shift+L / Alt+Shift+R fullscreens (identical on Mac — Alt chords).
+    // Layout chords: Ctrl+B left / Ctrl+Shift+B right (the column DSH ships
+    // natively as of 0.1.5-rc.1). The bottom-panel and fullscreen chords were
+    // retired with better-sidebar and ILayout's fullscreen trio.
     expect(d.toggleLeftSidebar).toMatchObject({ key: 'b', ctrl: true, shift: false, alt: false })
     expect(d.toggleRightSidebar).toMatchObject({ key: 'b', ctrl: true, shift: true, alt: false })
-    expect(d.toggleBottom).toMatchObject({ key: 'j', ctrl: true, shift: false, alt: false })
-    expect(d.fullscreenLeft).toMatchObject({ key: 'l', ctrl: false, shift: true, alt: true })
-    expect(d.fullscreenRight).toMatchObject({ key: 'r', ctrl: false, shift: true, alt: true })
     // Ctrl/Cmd+Shift+M toggles the dsh-synapse conversation map.
     expect(d.toggleSessionMap).toMatchObject({ key: 'm', ctrl: true, shift: true, alt: false })
     expect(ACTIONS).toEqual([
       'toggle', 'next', 'prev',
-      'toggleLeftSidebar', 'toggleRightSidebar', 'toggleBottom',
-      'fullscreenLeft', 'fullscreenRight', 'toggleSessionMap',
+      'toggleLeftSidebar', 'toggleRightSidebar', 'toggleSessionMap',
     ])
   })
 })

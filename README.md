@@ -25,13 +25,15 @@
 | 科研台 Lab Cockpit | 仓库内　 | 侧边栏「研究台」扫描展示研究项目 | 本地 link | ✅ 在用 |
 | 超级模组注入器 | 收录　 | 运行时注入插件包，免重启、热重载、自愈 | GitHub 源 | ✅ v0.3.3 |
 | 丝滑流式 | 收录　 | 流式渲染平滑（typewriter/teleprompter） | 本地 link | ✅ v0.3.2+fix |
-| Agent Teams | 收录　 | 多 agent 团队协作（captain + 成员） | 本地 link | ✅ v0.1.7 |
 | 画布工作区 | 收录　 | 会话/工作区画布投影 | 本地 link | ✅ v0.3.0 |
 | 壁纸引擎 | 收录　 | Wallpaper Engine 壁纸集成 | 本地 link | ✅ v0.2.2 |
 | Better Sidebar 工作台 | 收录　 | 文件/预览/终端/Git/浏览器/任务面板 | npm / GitHub | ✅ v0.12.x |
-| 视觉工具箱　　 | 收录　 | 识图、OCR、像素级定位、UI 还原 | npm | ✅ 在用 |
 | 记忆系统　　 | 收录　 | 跨会话记忆：自动沉淀 + 检索注入 | GitHub 源 | ✅ 在用 |
 | 对话分享　　 | 收录　 | 对话片段导出品牌化 PNG 长图 | GitHub 源 | ✅ v0.1.1 |
+| 配额仪表盘 | 仓库内　 | CPA / Command Code / DeepSeek / agy 多模型配额环 | 本地 link | ✅ v0.1.0 |
+| 移动端润色 | 仓库内　 | 移动端紧凑布局与对话全宽样式润色 | 本地 link | ✅ v0.1.0 |
+| PDF 拖放直传 | 仓库内　 | PDF/文档拖拽上传并在输入框注入引用 | 本地 link | ✅ v0.1.0 |
+| 鲸鱼下潜动画 | 收录　 | DeepSeek 灵感鲸鱼潜水状态指示动画 | 本地 link | ✅ v0.3.0 |
 | 浏览器兼容补丁 | 私人　 | polyfill `crypto.randomUUID` / `AbortSignal.*` | 私人 link | ✅ 在用 |
 | 推理模式路由 | 预设　 | 任务感知路由：spec/react/weak + 首轮工具裁剪 | 复制安装 | ✅ v2 |
 
@@ -50,12 +52,14 @@
 
 | 布局快捷键　　 | 默认键位 | 联动 |
 | --- | --- | --- |
-| 折叠/展开左侧栏 | `Ctrl+B` | DSH `ctx.layout` |
-| 折叠/展开右侧栏 | `Ctrl+Shift+B` | better-sidebar `ctx.betterSidebar` |
-| 折叠/展开底栏 | `Ctrl+J` | better-sidebar `ctx.betterSidebar` |
-| 左侧栏全屏/还原 | `Alt+Shift+L` | DSH `ctx.layout` |
-| 右侧栏全屏/还原 | `Alt+Shift+R` | better-sidebar `ctx.betterSidebar` |
-| 退出全屏（固定） | `Esc` | 两者同时退出 |
+| 折叠/展开左侧栏 | `Ctrl+B` | DSH `ctx.layout.toggleSidebar()` |
+| 折叠/展开右侧栏 | `Ctrl+Shift+B` | DSH 原生右侧栏 `ctx.sidebarRight.toggleExpanded()` |
+| 收起右侧栏（固定） | `Esc` | 同上；已收起时不动作 |
+
+> 0.1.5-rc.1 已移除 `ILayout` 的全屏三件套（`isLeftFullscreen` / `setLeftFullscreen` /
+> `toggleLeftFullscreen`），原生右侧栏也未在 `ctx.sidebarRight` 暴露全屏方法，因此
+> 原先的 `Alt+Shift+L` / `Alt+Shift+R` 全屏键与 `Ctrl+J` 底栏键（better-sidebar）
+> 已一并移除，避免按下即抛错或空操作。
 
 **安装**
 
@@ -71,22 +75,25 @@ pnpm dsh plugin --profile web add @suxeca/dsh-client-ui-session-switcher
 | npm　　 | `@suxeca/dsh-client-ui-session-switcher@0.1.0-rc.6`（`git tag dsh-v*` 触发 CI 发布） |
 | 回归脚本　　 | [`scripts/verify-shortcuts.mjs`](scripts/verify-shortcuts.mjs)（无头 Chrome E2E，13 项断言） |
 
-### 2. dsh-lab-kit · 科研台 Lab Cockpit
+### 2. ~~dsh-lab-kit~~ · 已于 2026-09-10 卸载删除
 
 | 项　　 | 说明 |
 | --- | --- |
-| 定位　　 | 侧边栏「研究台」：扫描工作区（识别 `.git` / `.summary.md`），按最近修改排序展示项目 |
-| 数据流　　 | host 经 `/lab-kit/projects` 路由提供 JSON |
-
-**安装**
-
-```sh
-pnpm dsh plugin --profile web add link:<repo>/packages/dsh-lab-kit
-```
-
-**参考**：本地 link 安装（`private`，未发布 npm）。
+| 状态　　 | **已卸载并删除**（`packages/dsh-lab-kit/` 已 `git rm`；profile 无挂点） |
+| 卸载原因 | 用户决定不再维护；它此前已处于 disabled（不在 `dsh.profile.bundles`、不在注入 registry），无实际挂载 |
+| 定位（原） | 侧边栏「研究台」：扫描工作区（识别 `.git` / `.summary.md`），按最近修改排序展示项目 |
+| 数据流（原） | host 经 `/lab-kit/projects` 路由提供 JSON |
+| 历史保全 | `~/Workspace/.backups/dsh-plugin-removal-20260910_2130/dsh-lab-kit-src.tgz` |
+| 上游　　 | **无**（已确认本地独有：npm 404 + GitHub 搜索 0 命中） |
 
 ### 3. dsh-custom-thinking · 自定义思考插件
+
+> **构建已标准化（2026-09-10）**：原先用手工 symlink 树（`scripts/build.sh` 从工作区
+> `.pnpm` store 里 `link_pkg`）解析依赖——store 一变就静默断链（本轮升级已经断过两次）。
+> 现已改为 **pnpm 管理的 devDependencies**：`scripts/` 已删除，`tsconfig.json` 继承
+> 仓库 base，`tsdown.config.ts` 复用 `shared/tsdown.client.ts`，脚本为
+> `tsc -b && tsdown`。转换后 `lib/client.js` 与转换前**逐字节一致**（23141B）。
+
 
 | 项　　 | 说明 |
 | --- | --- |
@@ -99,7 +106,47 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-lab-kit
 dev_inject_plugin <repo>/packages/dsh-custom-thinking
 ```
 
-### 4. 浏览器兼容补丁（🔒 私人使用，源码不入库）
+### 4. dsh-quota-meter · 多模型配额与余额仪表盘
+
+| 项　　 | 说明 |
+| --- | --- |
+| 定位　　 | 输入框上方动态配额环：支持 CPA Codex 周额度、Command Code 周额度、DeepSeek 余额以及 agy 配额实时轮询 |
+| 数据流　　 | host 端经 `/quota-meter/query` 路由代理查询并缓存 |
+
+**安装**
+
+```sh
+pnpm dsh plugin --profile web add link:<repo>/packages/dsh-quota-meter
+```
+
+### 5. dsh-mobile-polish · 移动端紧凑布局润色
+
+| 项　　 | 说明 |
+| --- | --- |
+| 定位　　 | 针对手机/平板竖屏优化：全宽对话容器、单行紧凑输入框、防遮挡与 safe-area 适配 |
+
+**安装**
+
+```sh
+pnpm dsh plugin --profile web add link:<repo>/packages/dsh-mobile-polish
+```
+
+### 6. dsh-pdf-drop · PDF 拖拽直传与引用注入
+
+| 项　　 | 说明 |
+| --- | --- |
+| 定位　　 | 拖入 PDF/文档直接上传到**当前会话工作区**，并自动在输入框插入 `@path/to/file.pdf` 引用 |
+| 数据流　　 | client 用 XHR 以 `application/octet-stream` 流式上传（带进度、无 base64 膨胀）→ host `/pdf-drop/upload` 落到会话 `cwd`（sessionId 优先，其次校验过的 cwd，最后回退进程目录并显式告警） |
+| 输入框写入 | 走 DSH 自己的 paste 通道（向 `[data-composer-input]` 派发 `paste` + `text/plain`），回退 `execCommand('insertText')` 与旧版 textarea，每条路径都用草稿文本校验，杜绝「静默失败」 |
+| 兼容性　　 | 不依赖安全上下文 API，纯 HTTP 局域网 / NetBird / Tailscale 远端同样可用；含路径穿越防护与 cross-site 拒绝 |
+
+**安装**
+
+```sh
+pnpm dsh plugin --profile web add link:<repo>/packages/dsh-pdf-drop
+```
+
+### 7. 浏览器兼容补丁（🔒 私人使用，源码不入库）
 
 纯 Client 私人插件；本仓库**只记录原理**，不收录源码、包名、安装路径或部署信息。缺失 API 会导致目录选择器、附件草稿与 RPC 调用崩溃。
 
@@ -120,7 +167,7 @@ dev_inject_plugin <repo>/packages/dsh-custom-thinking
 
 ## 收录插件（`third-party/`）
 
-### 5. dsh-super-injector · 超级模组注入器
+### 8. dsh-super-injector · 超级模组注入器
 
 | 项　　 | 说明 |
 | --- | --- |
@@ -130,7 +177,7 @@ dev_inject_plugin <repo>/packages/dsh-custom-thinking
 | 安装　　 | `dsh plugin --profile web add github:yjh051108/dsh-super-injector`（引导一次，之后万物皆可运行时注入） |
 | ⚠️ 高权限边界 | 以进程内代码执行能力运行任意插件包——仅装受信任实例 |
 
-### 6. dsh-smooth-stream · 丝滑流式渲染
+### 9. dsh-smooth-stream · 丝滑流式渲染
 
 | 项　　 | 说明 |
 | --- | --- |
@@ -140,16 +187,19 @@ dev_inject_plugin <repo>/packages/dsh-custom-thinking
 | 本地修复　 | `teleprompterGlide.ts` 新增 `clampLag()`：位移 ≤ 一行高（28px），杜绝中文/长路径跨行重叠；见 [`FIX-NOTES.md`](third-party/dsh-smooth-stream/FIX-NOTES.md) |
 | 安装　　 | `dsh plugin --profile web add dsh-smooth-stream`（本机为 `link:` 本地构建版） |
 
-### 7. dsh-agent-teams · Agent 团队协作
+### 10. dsh-agent-teams · Agent 团队协作（已卸载删除 2026-09-08）
 
-| 项　　 | 说明 |
-| --- | --- |
-| 定位　　 | 多 agent 团队：captain 建队、成员分工、任务依赖调度、消息协作 |
-| 能力　　 | 角色成员（researcher/engineer/reviewer）、任务看板、依赖编排、mailbox 直连 |
-| 上游　　 | <https://github.com/nanmicoder/dsh-agent-teams>（v0.1.7） |
-| 安装　　 | `dsh plugin --profile web add @nanmicoder/dsh-agent-teams`（本机 `link:`） |
+> 已于 2026-09-08 从本机彻底删除：`third-party/dsh-agent-teams/`（11,916 文件 / 211 MB 本地快照）、
+> 运行时状态归档 `.agent-teams/`（4 次审计的团队 inbox 与 final-report）、以及 profile junction
+> `~/.dsh/profiles/web/node_modules/@nanmicoder/`。删除前该插件**未在 loader 中挂载**，无运行期影响。
+> 连带修复：profile 的 `@types/node`、`@types/react` 两个 junction 原先指向该插件的 node_modules，
+> 已重指向工作区内同版本副本（24.13.3 / 18.3.31）。
+> 备注：它是社区插件（`@nanmicoder/dsh-agent-teams`，作者 NanmiCoder），与 DSH 官方的
+> `@deepseek-ai/dsh-experimental-agent-team`（`packages/experimental/agent-team`，官方标注
+> "excluded from official releases"）不是同一实现；后者本机从未启用。
+> 如需重建：`git clone https://github.com/NanmiCoder/dsh-agent-teams.git`（上游已到 0.1.15+，已适配宿主 alpha.2 的 `dsh-client-runtime` 移除）后 `dsh plugin --profile web add @nanmicoder/dsh-agent-teams`。
 
-### 8. dsh-synapse · 画布工作区
+### 11. dsh-synapse · 画布工作区
 
 | 项　　 | 说明 |
 | --- | --- |
@@ -158,7 +208,7 @@ dev_inject_plugin <repo>/packages/dsh-custom-thinking
 | 上游　　 | <https://github.com/liangmianya/dsh-synapse>（v0.3.0；本地含 loaded-sessions 持久化等增强，PR #5 已提交上游） |
 | 安装　　 | `dsh plugin --profile web add dsh-synapse`（本机 `link:`） |
 
-### 9. dsh-plugin-wallpaper-engine · 壁纸引擎
+### 12. dsh-plugin-wallpaper-engine · 壁纸引擎
 
 | 项　　 | 说明 |
 | --- | --- |
@@ -166,16 +216,31 @@ dev_inject_plugin <repo>/packages/dsh-custom-thinking
 | 上游　　 | <https://github.com/>（v0.2.2） |
 | 安装　　 | `dsh plugin --profile web add dsh-plugin-wallpaper-engine`（本机 `link:`） |
 
-### 10. dsh-vision-toolkit · 视觉工具箱
+### 13. dsh-whale-animation · 鲸鱼潜水状态指示动画
 
 | 项　　 | 说明 |
 | --- | --- |
-| 定位　　 | 把 [agent-vision-toolkit](https://github.com/Anionex/agent-vision-toolkit) 带入 DSH 的原生 Profile Bundle |
-| 能力　　 | 意图感知识图问答、OCR、像素定位、UI 还原、像素验证、Artifact 管理、Web 设置（10 个独立工具，渐进暴露） |
-| 上游　　 | <https://github.com/Anionex/dsh-vision-toolkit>（v0.1.6，MIT，162 测试） |
-| 安装　　 | `dsh plugin --profile web add @anionex/dsh-vision-toolkit` |
+| 定位　　 | DeepSeek 风格的鲸鱼潜水与波纹动效，直观指示当前会话的 turn 状态与思考进程 |
+| 上游　　 | <https://github.com/LeemanCheung/dsh-whale-animation>（v0.3.0） |
+| 安装　　 | `dsh plugin --profile web add dsh-whale-animation`（本机 `link:`） |
 
-### 11. sage-mem · DSH 记忆系统
+### 14. dsh-vision-toolkit · 视觉工具箱（已卸载删除 2026-09-08）
+
+> 已于 2026-09-08 彻底删除，四个位置全部清空：
+> ① `third-party/dsh-vision-toolkit/`（submodule 工作树，`@anionex/dsh-vision-toolkit@0.1.6`，217 文件 / 5.75 MB）；
+> ② `~/Workspace/dsh-vision-toolkit/`（link 装载源，`@dsh-external/dsh-vision-toolkit@0.1.2`，228 文件 / 9.53 MB，含未提交的 package.json 改动）；
+> ③ `dsh-plugin/.dsh-vision-toolkit/`（识图/OCR/crop/pixel-diff 制品，9 文件 / 0.54 MB）；
+> ④ `~/.dsh/cache/dsh-vision-toolkit/`（managed 模式下载的 Python runtime，**2,243 文件 / 159.06 MB**，是本次最大的一项）。
+> 同时清掉 profile 残留：`profiles/web/pnpm-lock.yaml` 的 `link:` 条目与 `node_modules/.package-map.json` 的依赖映射。
+> 删除前该插件**未在 loader 中挂载**（patch 里只有注释「vision-toolkit removed (native vision enabled)」），
+> 且已改用原生视觉模型，故卸载无功能回退。源码快照（两个副本的 src/docs/scripts/tests/vendor/assets/examples）
+> 已存于 `/tmp/vt-deletion-snapshot/`（197 文件 / 8.93 MB），需要时可取回。
+> 收尾需你补一条命令：父仓 index 仍留有 gitlink，请执行
+> `git rm --cached third-party/dsh-vision-toolkit && git commit -m "chore: drop dsh-vision-toolkit submodule"`
+> （`.gitmodules` 与 `.git/config` 的条目已移除；重装上游命令：`git clone https://github.com/Anionex/dsh-vision-toolkit.git`）
+
+
+### 15. sage-mem · DSH 记忆系统
 
 | 项　　 | 说明 |
 | --- | --- |
@@ -185,25 +250,27 @@ dev_inject_plugin <repo>/packages/dsh-custom-thinking
 | 架构　　 | DSH 插件 → HTTP → Bun 常驻 worker → SQLite（FTS5 trigram） |
 | 安装　　 | `dsh plugin --profile web add github:gezi-wen/sage-mem`（另需按上游说明常驻 worker） |
 
-### 12. dsh-conversation-share · 对话分享
+### 16. ~~dsh-conversation-share~~ · 已于 2026-09-10 卸载删除
 
 | 项　　 | 说明 |
 | --- | --- |
-| 定位　　 | 会话流中选取一段对话范围（可拖拽、磁吸对齐），导出**品牌化 PNG 长图**（适合飞书/微信/汇报） |
-| 上游　　 | <https://github.com/bill9109/dsh-conversation-share>（v0.1.1，未发布 npm） |
-| 安装　　 | `dsh plugin --profile web add github:bill9109/dsh-conversation-share` |
+| 状态　　 | **已卸载并删除**（源码目录、submodule 登记、`.git/modules` 对象库全部清除；profile 无挂点） |
+| 卸载原因 | 用户决定不再维护；且它所属的 `@bill9109/…` 作用域**已从 npm 消失**（404），维护版改用无 scope 的 `dsh-conversation-share` |
+| 定位（原） | 会话流中选取一段对话范围（可拖拽、磁吸对齐），导出**品牌化 PNG 长图** |
+| 历史保全 | `~/Workspace/.backups/dsh-plugin-removal-20260910_2130/`：`dsh-conversation-share-src.tgz`、`dsh-conversation-share-history.bundle`（含 `main`/`v0.1.1` 等全部 ref）、`dsh-conversation-share-uncommitted.patch` |
+| 想装回来 | 用维护版而非旧作用域：`dsh plugin --profile web add dsh-conversation-share@0.1.5` |
 
-### 13. dsh-better-sidebar · 文件预览与右侧工作台
+### 17. ~~dsh-better-sidebar~~ · 已于 2026-09-10 卸载（改用官方原生侧边栏）
 
 | 项　　 | 说明 |
 | --- | --- |
-| 定位　　 | VSCode 风格右侧栏 + 底部面板 |
-| 能力　　 | 文件树、文本/Markdown/图片/PDF 预览与编辑、真实终端、Git、内嵌浏览器、后台任务、第三方 Tab 扩展接口 |
-| 上游　　 | <https://github.com/omdsh-dev/DSH-better-sidebar>（本机 v0.12.x） |
-| 安装　　 | `dsh plugin --profile web add dsh-better-sidebar` |
-| ⚠️ 高权限边界 | Host 侧具备文件读写、PTY shell、Git、浏览器能力，非只读预览器——仅装受信任实例 |
+| 状态　　 | **已卸载 / 已删除**（源码目录与 profile 挂载全部移除，释放 609MB） |
+| 卸载原因 | DSH 0.1.5-rc.1 起官方自带可扩展的右侧 Sidebar（`ctx.sidebarRight` + `ctx.sidebarRightTabs`，含文件树、Markdown/代码/HTML/PDF/图片预览、多标签、分栏、全屏），不再需要第三方实现 |
+| 上游　　 | <https://github.com/omdsh-dev/DSH-better-sidebar>（卸载时为 v0.19.0） |
+| 历史保全 | `~/Workspace/.backups/dsh-upgrade-20260910_185827/dsh-better-sidebar-history.bundle`（含 `preserve/local-v0.12.1-custom` 分支，即卸载前那份 +1321 行的本地修订）与 `…/dsh-better-sidebar-stash.patch` |
+| 重新安装 | `dsh plugin --profile web add dsh-better-sidebar@latest`（需 DSH ≥ 0.1.5-rc.1） |
 
-> 本机目录含行为修订快照（gitignored）；README 只记录官方上游。
+> **已知副作用（仅 3 个键位）**：`session-switcher` 的 `Ctrl+J`（底栏）、`Alt+Shift+R`（右栏全屏）以及 `Ctrl+Shift+B` 原先经 `ctx.betterSidebar` 联动，现改由 DSH 原生 `ctx.sidebarRight` 承担；该插件对 `ctx.get('betterSidebar')` 返回 `undefined` 已做优雅降级，不会报错。`wallpaper-engine` 里针对 `[data-dsh-better-sidebar]` 的玻璃拟态 CSS 规则变为未命中（无副作用）。`custom-thinking` 仅在注释中提到它。
 
 ---
 
@@ -244,19 +311,17 @@ cp -r presets/router-standard ~/.dsh/.agent-presets/
 ```
 packages/                  # 仓库内维护插件（monorepo，tsdown 构建 + vitest）
   dsh-client-ui-session-switcher/
-  dsh-lab-kit/
   dsh-custom-thinking/
+  dsh-external-dirs/       #   官方侧边栏「外部目录」tab（2026-09-10 新增）
+  dsh-mobile-polish/
+  dsh-pdf-drop/
+  dsh-quota-meter/
   dsh-secure-context-polyfill/   # 🔒 私人，gitignored
 third-party/               # 收录的在用插件（公开上游 submodule / 本地快照）
   dsh-super-injector/      #   submodule（本地修复 commit）
-  dsh-vision-toolkit/      #   submodule
-  sage-mem/                #   submodule
-  dsh-conversation-share/  #   submodule
   dsh-smooth-stream/       #   本地修复版（clampLag，PR #6）
-  dsh-agent-teams/         #   本地快照
   dsh-synapse/             #   本地快照（PR #5）
   dsh-wallpaper-engine/    #   本地快照
-  dsh-better-sidebar/      # 本机修订快照（gitignored；官方上游见插件说明）
 presets/                   # 推理模式路由预设（复制到 ~/.dsh/.agent-presets/ 安装）
   router-standard/         #   通用路由（routing-suite 范式；含 MIT LICENSE）
 docs/                      # 文档

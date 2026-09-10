@@ -22,9 +22,7 @@
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "inject": [
-        "@deepseek-ai/dsh-client-runtime"
-      ],
+      "inject": [],
       "platform": "web"
     }
   },
@@ -37,13 +35,13 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-api-session-controller": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-api-workspace-controller": "0.1.5-rc.1",
     "@types/node": "^22.20.0",
     "@types/react": "~18.3.1",
     "@types/react-dom": "^18.3.5",

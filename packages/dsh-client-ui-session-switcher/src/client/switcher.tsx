@@ -61,8 +61,19 @@ function Kbd({ children }: { readonly children: string }): JSX.Element {
 export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.Element | null {
   const palette = useSyncExternalStore(openStore.subscribe, openStore.getSnapshot)
   const open = palette.open
-  const sessionsSnap = useSyncExternalStore(ctx.sessions.list.subscribe, ctx.sessions.list.getSnapshot)
-  const workspacesSnap = useSyncExternalStore(ctx.workspaces.list.subscribe, ctx.workspaces.list.getSnapshot)
+  // The sessions list is an arrow-bound SnapshotStore, so binding is optional;
+  // workspaces.list is a ClientWorkspaceModel whose getSnapshot/subscribe are
+  // prototype methods — extracting them bare makes React call them with an
+  // undefined `this` (throws "reading 'refreshSnapshot'"). Wrap both
+  // symmetrically so neither store leaks its receiver.
+  const sessionsSnap = useSyncExternalStore(
+    (listener) => ctx.sessions.list.subscribe(listener),
+    () => ctx.sessions.list.getSnapshot(),
+  )
+  const workspacesSnap = useSyncExternalStore(
+    (listener) => ctx.workspaces.list.subscribe(listener),
+    () => ctx.workspaces.list.getSnapshot(),
+  )
   const keymap = useSyncExternalStore(keymapStore.subscribe, keymapStore.getSnapshot)
   const [query, setQuery] = useState('')
   /** Selection position within the row-only subsequence (headers are skipped). */
@@ -374,6 +385,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     } else if (e.key === 'Escape') {
       e.preventDefault()
       if (searching) exitSearch()
+      else if (showArchived) setShowArchived(false)
       else openStore.close()
     } else if (matchesBinding(keymap.bindings.toggle, e)) {
       e.preventDefault()
@@ -387,13 +399,13 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
       } else if (k === 'n') {
         e.preventDefault()
         newConversation()
-      } else if (k === 'a') {
+      } else if (k === 'a' && !showArchived) {
         e.preventDefault()
         if (selected !== null) archiveSession(selected.session.id)
       } else if (k === 'u' && showArchived) {
         e.preventDefault()
         if (selected !== null) unarchiveSession(selected.session.id)
-      } else if (k === 't' && hasArchived) {
+      } else if (k === 't' && (hasArchived || showArchived)) {
         e.preventDefault()
         setShowArchived((v) => !v)
       } else if (k === 'r') {
@@ -542,12 +554,20 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
       <span className={css.footerAction}><Kbd>空格</Kbd>预览</span>
       <span className={css.footerAction}><Kbd>S</Kbd>搜索</span>
       <span className={css.footerAction}><Kbd>N</Kbd>新建</span>
-      <span className={css.footerAction}><Kbd>A</Kbd>归档</span>
+      {showArchived ? (
+        <>
+          <span className={css.footerAction}><Kbd>U</Kbd>取消归档</span>
+          <span className={css.footerAction}><Kbd>T</Kbd>返回列表</span>
+        </>
+      ) : (
+        <>
+          <span className={css.footerAction}><Kbd>A</Kbd>归档</span>
+          {hasArchived && <span className={css.footerAction}><Kbd>T</Kbd>归档视图</span>}
+        </>
+      )}
       <span className={css.footerAction}><Kbd>R</Kbd>重命名</span>
       <span className={css.footerAction}><Kbd>K</Kbd>快捷键</span>
-      {hasArchived && <span className={css.footerAction}><Kbd>T</Kbd>归档视图</span>}
-      {showArchived && <span className={css.footerAction}><Kbd>U</Kbd>取消归档</span>}
-      <span className={css.footerAction}><Kbd>Esc</Kbd>关闭</span>
+      <span className={css.footerAction}><Kbd>Esc</Kbd>{showArchived ? '返回列表' : '关闭'}</span>
       <span className={`${css.footerAction} ${css.footerPush}`}>
         <Kbd>{toggleLabel}</Kbd>开关
       </span>
@@ -591,6 +611,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
       <div ref={cardRef} tabIndex={-1} className={css.card} onKeyDown={onKeyDown}>
         <div className={css.header}>
           <span className={css.title}>切换对话</span>
+          {showArchived && <span className={css.modeTag}>已归档</span>}
           {searching && <span className={css.modeTag}>搜索</span>}
           {renaming && <span className={css.modeTag}>重命名</span>}
           {configuring && <span className={css.modeTag}>快捷键</span>}
