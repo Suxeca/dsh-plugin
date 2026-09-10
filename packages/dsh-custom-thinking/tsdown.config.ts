@@ -1,37 +1,18 @@
-import { fileURLToPath } from 'node:url'
-import type { UserConfig } from 'tsdown'
+/**
+ * tsdown preset for @dsh-external/dsh-custom-thinking.
+ *
+ * The browser bundle reuses the repository's shared preset, so this plugin
+ * emits the same closure-factory protocol as every other local UI plugin: a
+ * CommonJS artifact that registers itself through
+ * `window.__ModuleLoader__.load({ id, factory })` and resolves its externals
+ * from the loader's module table.
+ *
+ * Converted from a hand-rolled config during the pnpm-devDependencies
+ * migration (2026-09-10). The build previously leaned on a symlink tree that
+ * `scripts/build.sh` assembled out of the workspace store, which broke
+ * silently whenever that store changed; the dependencies are now declared in
+ * `package.json` and installed by pnpm.
+ */
+import { clientBundle } from '../../shared/tsdown.client.ts'
 
-const PLUGIN_ID = "@dsh-external/dsh-custom-thinking"
-
-const CLIENT_EXTERNALS = [
-  'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',
-  'cordis',
-  '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-runtime/client',
-]
-
-const clientBundle: UserConfig = {
-  entry: { client: 'src/client/index.ts' },
-  outDir: 'lib',
-  format: 'cjs',
-  platform: 'browser',
-  dts: false,
-  sourcemap: true,
-  clean: false,
-  define: {
-    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
-  },
-  deps: {
-    neverBundle: [...CLIENT_EXTERNALS],
-    alwaysBundle: (id: string) => !CLIENT_EXTERNALS.includes(id),
-  },
-  outputOptions: {
-    entryFileNames: 'client.js',
-    banner: 'window.__ModuleLoader__.load({ id: ' + JSON.stringify(PLUGIN_ID) + ', factory: (require) => {',
-    footer: 'return module.exports; } });',
-    intro: 'var module = { exports: {} }; var exports = module.exports;',
-    codeSplitting: false,
-  },
-}
-
-export default [clientBundle] satisfies UserConfig[]
+export default clientBundle('@dsh-external/dsh-custom-thinking', ['src/index.ts'])

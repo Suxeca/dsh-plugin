@@ -10,7 +10,9 @@
  * 资源全部挂 ctx.effect（卸载/热重载自动清理）。
  * @module @suxeca/dsh-custom-thinking
  */
-import type { Context } from 'cordis'
+// Rescoped import: the repo's other plugins target @deepseek-ai/cordis, which is
+// the name rc.1's service augmentations are declared against.
+import type { Context } from '@deepseek-ai/cordis'
 import type { HostContext } from './host/api.ts'
 import { registerCustomThinkingRoutes } from './host/api.ts'
 
