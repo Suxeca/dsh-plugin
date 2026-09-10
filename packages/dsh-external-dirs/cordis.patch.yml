@@ -1,0 +1,11 @@
+# dsh-external-dirs bundle patch.
+#
+# This file is the `dsh.bundle.patch` layer of the package: declaring it in
+# `dsh.bundle` lets the profile mount this plugin just by listing the package
+# in `dsh.profile.bundles`. The single `insert` row is the plugin entry.
+#
+# The plugin reads its roots list from its own settings namespace, so no
+# composition-time config is required here.
+- insert:
+    - id: external-dirs
+      name: '@suxeca/dsh-external-dirs'
