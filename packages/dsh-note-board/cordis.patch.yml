@@ -1,0 +1,21 @@
+# dsh-note-board bundle patch.
+#
+# The single `insert` row is the plugin entry, inserted with **no config on
+# purpose**: every default is already the portable one.
+#
+#   · the attachment registry lives under `${DSH_HOME:-~/.dsh}`
+#   · the catalogue scans `~/Workspace`
+#   · a note is looked for at the conventional `<project>/notes/ledger.md`
+#   · the audit inbox is *derived* from whichever note a session is bound to
+#     rather than configured as a path, because a fixed inbox would collect one
+#     project's verdicts and show them in every other project's board
+#
+# A deployment whose notes live elsewhere — a different root, file name, or
+# inbox directory — overrides `scanRoots`, `ledgerFiles` and `auditInboxName` in
+# its **own profile patch layer**, which the loader applies after every bundle
+# layer. Keeping deployment-specific paths out of this file is what lets one
+# release serve both a plain `notes/ledger.md` project and a differently
+# configured one.
+- insert:
+    - id: note-board
+      name: '@suxeca/dsh-note-board'

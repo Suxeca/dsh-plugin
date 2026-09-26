@@ -33,6 +33,7 @@
 | 配额仪表盘 | 仓库内　 | CPA / Command Code / DeepSeek / agy 多模型配额环 | 本地 link | ✅ v0.1.0 |
 | 移动端润色 | 仓库内　 | 移动端紧凑布局与对话全宽样式润色 | 本地 link | ✅ v0.1.0 |
 | PDF 拖放直传 | 仓库内　 | PDF/文档拖拽上传并在输入框注入引用 | 本地 link | ✅ v0.1.0 |
+| 笔记看板　　 | 仓库内　 | 会话绑定的 Markdown 笔记：KaTeX 渲染 + 每轮注入 + 增量播报 | 本地 link | ✅ v0.2.0 |
 | 鲸鱼下潜动画 | 收录　 | DeepSeek 灵感鲸鱼潜水状态指示动画 | 本地 link | ✅ v0.3.0 |
 | 浏览器兼容补丁 | 私人　 | polyfill `crypto.randomUUID` / `AbortSignal.*` | 私人 link | ✅ 在用 |
 | 推理模式路由 | 预设　 | 任务感知路由：spec/react/weak + 首轮工具裁剪 | 复制安装 | ✅ v2 |
@@ -165,9 +166,33 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-pdf-drop
 
 ---
 
+### 8. dsh-note-board · 笔记看板
+
+对话视图的**第三个标签页**：把一份 Markdown 笔记按**会话**绑定、用平台自带 KaTeX 渲染、并每轮注入系统提示。
+笔记里写什么它不关心——任何「值得每轮注入、且需要人工确认过才算数」的 Markdown 都适用。
+
+| 项　　 | 说明 |
+| --- | --- |
+| 定位　　 | `对话 | 轨迹 | 笔记看板`，三页签：笔记目录 / 笔记正文 / 审计判决 |
+| 绑定　　 | 按会话解析：显式附加 → 从会话工作目录逐级向上发现 → **无**（缺席不回退到别的笔记，否则会话互相渗漏） |
+| 注入　　 | 挂 `system-prompt/assemble` waterfall 前插 `note-ledger`；内容变化时先发 `[LEDGER DELTA]` 点名变动的节并声明旧版本作废 |
+| 增量基线 | 持久化到 `note-board-fingerprints.json`：DSH 停机期间的编辑，在恢复后的第一轮依然会被播报 |
+| 服务　　 | `ctx.provide('noteLedgers')` → `resolve(sessionId, cwd?)` / `read(...)`，同部署的其它插件共用同一份解析器 |
+| 可配置　 | 9 个键全部可覆盖；部署相关路径（`scanRoots` / `ledgerFiles` / `auditInboxName`）留在**本机 profile patch 层**，不进包内 patch |
+| 测试　　 | 66 条 / 5 文件：React `ref` prop 陷阱、cwd 持久化兜底、跨重启指纹基线、i18n 键集一致性、路由鉴权/有界读/挂载回滚 |
+
+```sh
+cd <repo>/packages/dsh-note-board && npm run build
+pnpm dsh plugin --profile web add link:<repo>/packages/dsh-note-board
+```
+
+**文档**：[packages/dsh-note-board/README.md](./packages/dsh-note-board/README.md)（含英文概览）
+
+---
+
 ## 收录插件（`third-party/`）
 
-### 8. dsh-super-injector · 超级模组注入器
+### 9. dsh-super-injector · 超级模组注入器
 
 | 项　　 | 说明 |
 | --- | --- |
@@ -177,7 +202,7 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-pdf-drop
 | 安装　　 | `dsh plugin --profile web add github:yjh051108/dsh-super-injector`（引导一次，之后万物皆可运行时注入） |
 | ⚠️ 高权限边界 | 以进程内代码执行能力运行任意插件包——仅装受信任实例 |
 
-### 9. dsh-smooth-stream · 丝滑流式渲染
+### 10. dsh-smooth-stream · 丝滑流式渲染
 
 | 项　　 | 说明 |
 | --- | --- |
@@ -187,7 +212,7 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-pdf-drop
 | 本地修复　 | `teleprompterGlide.ts` 新增 `clampLag()`：位移 ≤ 一行高（28px），杜绝中文/长路径跨行重叠；见 [`FIX-NOTES.md`](third-party/dsh-smooth-stream/FIX-NOTES.md) |
 | 安装　　 | `dsh plugin --profile web add dsh-smooth-stream`（本机为 `link:` 本地构建版） |
 
-### 10. dsh-agent-teams · Agent 团队协作（已卸载删除 2026-09-08）
+### 11. dsh-agent-teams · Agent 团队协作（已卸载删除 2026-09-08）
 
 > 已于 2026-09-08 从本机彻底删除：`third-party/dsh-agent-teams/`（11,916 文件 / 211 MB 本地快照）、
 > 运行时状态归档 `.agent-teams/`（4 次审计的团队 inbox 与 final-report）、以及 profile junction
@@ -199,7 +224,7 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-pdf-drop
 > "excluded from official releases"）不是同一实现；后者本机从未启用。
 > 如需重建：`git clone https://github.com/NanmiCoder/dsh-agent-teams.git`（上游已到 0.1.15+，已适配宿主 alpha.2 的 `dsh-client-runtime` 移除）后 `dsh plugin --profile web add @nanmicoder/dsh-agent-teams`。
 
-### 11. dsh-synapse · 画布工作区
+### 12. dsh-synapse · 画布工作区
 
 | 项　　 | 说明 |
 | --- | --- |
@@ -208,7 +233,7 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-pdf-drop
 | 上游　　 | <https://github.com/liangmianya/dsh-synapse>（v0.3.0；本地含 loaded-sessions 持久化等增强，PR #5 已提交上游） |
 | 安装　　 | `dsh plugin --profile web add dsh-synapse`（本机 `link:`） |
 
-### 12. dsh-plugin-wallpaper-engine · 壁纸引擎
+### 13. dsh-plugin-wallpaper-engine · 壁纸引擎
 
 | 项　　 | 说明 |
 | --- | --- |
@@ -216,7 +241,7 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-pdf-drop
 | 上游　　 | <https://github.com/>（v0.2.2） |
 | 安装　　 | `dsh plugin --profile web add dsh-plugin-wallpaper-engine`（本机 `link:`） |
 
-### 13. dsh-whale-animation · 鲸鱼潜水状态指示动画
+### 14. dsh-whale-animation · 鲸鱼潜水状态指示动画
 
 | 项　　 | 说明 |
 | --- | --- |
@@ -224,7 +249,7 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-pdf-drop
 | 上游　　 | <https://github.com/LeemanCheung/dsh-whale-animation>（v0.3.0） |
 | 安装　　 | `dsh plugin --profile web add dsh-whale-animation`（本机 `link:`） |
 
-### 14. dsh-vision-toolkit · 视觉工具箱（已卸载删除 2026-09-08）
+### 15. dsh-vision-toolkit · 视觉工具箱（已卸载删除 2026-09-08）
 
 > 已于 2026-09-08 彻底删除，四个位置全部清空：
 > ① `third-party/dsh-vision-toolkit/`（submodule 工作树，`@anionex/dsh-vision-toolkit@0.1.6`，217 文件 / 5.75 MB）；
@@ -240,7 +265,7 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-pdf-drop
 > （`.gitmodules` 与 `.git/config` 的条目已移除；重装上游命令：`git clone https://github.com/Anionex/dsh-vision-toolkit.git`）
 
 
-### 15. sage-mem · DSH 记忆系统
+### 16. sage-mem · DSH 记忆系统
 
 | 项　　 | 说明 |
 | --- | --- |
@@ -250,7 +275,7 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-pdf-drop
 | 架构　　 | DSH 插件 → HTTP → Bun 常驻 worker → SQLite（FTS5 trigram） |
 | 安装　　 | `dsh plugin --profile web add github:gezi-wen/sage-mem`（另需按上游说明常驻 worker） |
 
-### 16. ~~dsh-conversation-share~~ · 已于 2026-09-10 卸载删除
+### 17. ~~dsh-conversation-share~~ · 已于 2026-09-10 卸载删除
 
 | 项　　 | 说明 |
 | --- | --- |
@@ -260,7 +285,7 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-pdf-drop
 | 历史保全 | `~/Workspace/.backups/dsh-plugin-removal-20260910_2130/`：`dsh-conversation-share-src.tgz`、`dsh-conversation-share-history.bundle`（含 `main`/`v0.1.1` 等全部 ref）、`dsh-conversation-share-uncommitted.patch` |
 | 想装回来 | 用维护版而非旧作用域：`dsh plugin --profile web add dsh-conversation-share@0.1.5` |
 
-### 17. ~~dsh-better-sidebar~~ · 已于 2026-09-10 卸载（改用官方原生侧边栏）
+### 18. ~~dsh-better-sidebar~~ · 已于 2026-09-10 卸载（改用官方原生侧边栏）
 
 | 项　　 | 说明 |
 | --- | --- |
