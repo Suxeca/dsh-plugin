@@ -28,3 +28,6 @@ PLUGIN-HANDOFF.md
 # 运行时产物：agents team 会话状态 / vision-toolkit 制品（非源码）
 .agent-teams/
 .dsh-vision-toolkit/
+
+# 本地部署副本：运行时用这一份，公开仓库的 packages/ 保持 pristine
+local-deploy/

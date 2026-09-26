@@ -95,6 +95,11 @@ function fakeCtx(services: FakeServices): FakeCtx {
       registry[name] = value
       return () => { delete registry[name] }
     },
+    // Scoped late injection, as the real context spells it: run the callback
+    // now so a mount that waits for a service is still exercised here. This
+    // fixture registers neither commands nor the services it would read, so the
+    // callback finds nothing and the board mounts unchanged.
+    inject: (_names: readonly string[], callback: (scope: unknown) => unknown) => callback(ctx),
     webServer: {
       register: (route: { path: string, handler: (req: unknown, res: unknown) => Promise<void> }) => {
         routes.set(route.path, route.handler)

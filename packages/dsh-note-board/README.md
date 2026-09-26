@@ -67,7 +67,47 @@
 
 ### 注入
 
-挂在 `system-prompt/assemble` waterfall 上，把自己的 section **前插**（数组顺序即优先级，靠前插才能压过 persona）：
+挂在 `system-prompt/assemble` waterfall 上。**顺序只是呈现顺序，不是优先级**——`sections` 没有 rank 字段，靠前并不会让它压过 persona。默认 `placement: 'last'`（后置）：账本是**数据**，persona 是**作业契约**，让契约先框住数据；后置也把「最前面」留给需要它的逐轮路由指令，并且不让一个带权威口吻的抬头占据首位（那正是提示注入想站的一侧）。若你希望定义先于一切出现，设 `placement: 'first'`。
+
+### 会话级注入开关
+
+**默认自动注入**：会话的工作目录向上能找到候选笔记就注入。两个入口，写的是同一份状态：
+
+**① 斜杠命令**（可在**发第一条消息之前**用，看板标签页此时还不存在）：
+
+```
+/note-board off      本会话不注入
+/note-board on       恢复注入
+/note-board status   查看当前状态（等价于 /note-board）
+```
+
+**② 看板绑定栏**：
+
+- 「**本会话不注入**」→ 停止把这份笔记注入**当前会话**，其它会话不受影响；
+- 关闭态显示为「**注入已关闭**」，旁边是「恢复注入」。
+
+关闭是**持久化**的（写进 registry 的 `off` 名单，跨重启记住），并且**压过自动发现**——否则下次装配会把刚关掉的笔记重新绑定。开关是**会话级**：项目里的其它会话、以及显式附加关系都不动（恢复时回到原来的绑定）。
+
+一个必须说清的限制：`delivery: 'snapshot'` 下正文是**已提交进会话历史**的消息，而历史只追加。所以关闭时插件会**注入一条作废声明**（「此前注入的笔记副本已作废，不要再引用」），而不是假装它消失了；`section` 通道下关闭则立刻从系统提示消失。
+
+### 为什么正文默认走系统提示，以及 `delivery: 'snapshot'` 是什么
+
+系统提示是 agent loop 的 **surface 第 0 号节点**，渲染文本一变就**原位替换**（[决策记录](../../../deepseek-harness/.agents/notes/implemented/architecture/2026-09-02-system-prompt-as-surface-node.zh.md)）；而替换第 0 号节点意味着"提供方前缀从第一个 token 起改变"。于是**笔记每编辑一次，改动点之后的整段会话都在重算区间里**——代价随会话长度增长，而不是随笔记长度。
+
+`delivery: 'snapshot'` 把同一份正文改投成 **durable user-role 快照**（平台自己的运行时上下文用的就是这种形状：`source: {kind:'plugin', form:'snapshot', sections}`）。快照追加在**保留历史之后**：内容变化时只追加，被 compaction 丢掉时在下一次装配自动补回（按 surface 里是否存在同一份正文判断，不另做记账）。代价是历史里会同时留有新旧的正文副本。
+
+两条通道**投递的文本完全相同**（同一段 header + 正文，测试里直接比对过），差别只在通道。默认 `'section'`：它给出的是不依赖历史与压缩的每轮保证。
+
+**两条通道，各取所长**：
+
+| 内容 | 通道 | 为什么 |
+| --- | --- | --- |
+| 笔记**正文** | system-prompt section | 要的是**保证**：每个请求重新拼装，不漏轮、不被压缩吞掉。抬头里常驻一句「本节即最新版本，以本节为准」，覆盖通知送达前的那一步 |
+| **变更通知** `[LEDGER DELTA]` | `agent.inject` 上下文注入 | 要的是**可见**：它以 `kind: 'plugin'`（`plugin: 'note-ledger'`）注入为一条 user 消息，在时间线上显示为可折叠的「上下文注入 · note-ledger」，折叠行是 `form: 'notice'` 的摘要，展开即正文。改动发生的那一轮你能直接看见，不必去 diff 两次请求的系统提示 |
+
+注意 `source.kind` 只能用 `'plugin'`：会话持久化格式对 `kind` 做闭集校验，生产者不能自造。注入是在**下一个 pre-step** 被 claim 的（平台自身文档也写明可能错过某次请求），所以它承担"通知"，不承担"每轮必到"——那是正文留在系统提示里的原因。
+
+系统提示里注入的 section：
 
 - `note-ledger` —— 正文，带 `[FROZEN LEDGER]` 抬头（「不得在未显式声明 `[SYMBOL MUTATION]` 的情况下改写」）
 - `note-ledger-delta` —— 仅当指纹变了：`新增 / 被替换 / 被删除` 逐节点名，并明确「下面正文是最新版本，以它为准；你上下文里的旧版本已作废」
@@ -190,6 +230,10 @@ $$ \boxed{\;f(x) \equiv \dots\;} $$
 | `catalogTtlMs` | `30000` | 扫描结果缓存时长（上限 10 分钟） |
 | `ledgerFiles` | `[]` → `['notes/ledger.md', '.notes/ledger.md', 'ledger.md']` | 逐级向上查找的相对路径，按顺序 |
 | `auditInboxName` | `''` → `.note-audit-inbox` | 审计收件箱目录名（位置固定在笔记同级） |
+| `placement` | `'last'` | 注入 section 落在 `'first'` 还是 `'last'`；仅影响呈现顺序，不影响权威 |
+| `delivery` | `'section'` | 正文走哪条通道：`'section'` 渲染进系统提示；`'snapshot'` 作为 durable user-role 快照投递（见下） |
+
+注入开关不是配置项——它是**按会话**的运行时状态（`POST /note-board/api/injection`），写在 registry 里。
 
 覆盖示例（放在 `~/.dsh/profiles/<profile>/cordis.patch.yml`）：
 
@@ -227,7 +271,7 @@ pnpm dsh plugin --profile web add link:/abs/path/to/packages/dsh-note-board
 
 **依赖**（peerDependencies，不打包）：`@deepseek-ai/cordis`、`dsh-client-ui-conversation`、
 `dsh-client-ui-primitives`、`dsh-client-ui-slots`、`dsh-host-webserver`、
-`@deepseek-ai/schemastery`、`react`。宿主侧还**必须**有 `connection` 服务（`inject` 的第三项）：
+`@deepseek-ai/schemastery`、`react`、`@deepseek-ai/dsh-llm`（`createUserMessage`，用于构造上下文注入消息）。宿主侧还**必须**有 `connection` 服务（`inject` 的第三项）：
 它是路由鉴权的来源，缺席时插件不会挂载（这是有意的：宁可挂不上，也不要在无法鉴别调用方时提供文件内容）。KaTeX 由 `dsh-client-ui-primitives` 的 `MarkdownText` 提供，
 本包**不**自带数学渲染器。
 
@@ -241,7 +285,7 @@ npm run typecheck    # tsc -b --pretty false
 npm run test         # vitest run
 ```
 
-测试（66 条，5 个文件）覆盖的都是**踩过的坑**，不是覆盖率：
+测试（85 条，6 个文件）覆盖的都是**踩过的坑**，不是覆盖率：
 
 | 文件 | 守的是什么 |
 | --- | --- |
@@ -270,7 +314,7 @@ and `auditInboxName` are overridable in a profile's own patch layer, which the l
 every bundle layer.
 
 - Licence: BSD-3-Clause
-- Tests: `npm run test` (66 tests) · Typecheck: `npm run typecheck`
+- Tests: `npm run test` (85 tests) · Typecheck: `npm run typecheck`
 
 ---
 

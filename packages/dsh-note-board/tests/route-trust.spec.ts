@@ -30,7 +30,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import { apply, type Config } from '../src/index.ts'
 import { MAX_READ_CHARS, readBoundedFile } from '../src/host/read.ts'
 import { readRegistry } from '../src/host/ledgers.ts'
-import { ROUTE_ATTACH, ROUTE_LEDGER, ROUTE_PREFIX } from '../src/shared-routes.ts'
+import {
+  ROUTE_ATTACH, ROUTE_AUDITS, ROUTE_CATALOG, ROUTE_DETACH, ROUTE_INJECTION, ROUTE_KNOWN, ROUTE_LEDGER, ROUTE_PREFIX,
+} from '../src/shared-routes.ts'
 
 const base = mkdtempSync(join(tmpdir(), 'note-trust-'))
 const project = join(base, 'project')
@@ -64,12 +66,15 @@ function mount(options: {
   failRegistrationAt?: number
   /** A caller-owned route table, so a failed mount and its retry share one. */
   table?: Map<string, (req: unknown, res: unknown) => Promise<void>>
+  /** Stands in for the agent registry the injection switch revokes through. */
+  agents?: { get: (id: string) => unknown }
 } = {}) {
   const routes = options.table ?? new Map<string, (req: unknown, res: unknown) => Promise<void>>()
   // A fresh registry per mount: sharing one would let an attach in one test
   // decide what another test reads.
   const registryPath = join(base, `note-boards-${mounts++}.json`)
   const services: Record<string, unknown> = {
+    ...(options.agents === undefined ? {} : { agents: options.agents }),
     connection: options.omitConnection === true
       ? undefined
       : {
@@ -79,9 +84,13 @@ function mount(options: {
           },
         },
   }
-  const ctx = {
+  const ctx: Record<string, unknown> = {
     get: (name: string) => services[name],
     on: () => () => {},
+    // Scoped late injection as the real context spells it: run the callback now,
+    // so a mount that waits for a service is still exercised. This fixture
+    // registers no command service, so the callback finds nothing to register.
+    inject: (_names: readonly string[], callback: (scope: unknown) => unknown) => callback(ctx),
     effect: (callback: () => unknown) => {
       const dispose = callback()
       return () => { if (typeof dispose === 'function') (dispose as () => void)() }
@@ -283,8 +292,13 @@ describe('a failed mount leaves nothing registered', () => {
     // Re-registering against the SAME table proves the failure did not block the
     // paths it had already taken (a leftover handler makes the retry collide).
     const { routes } = mount({ table })
-    expect(routes.size).toBe(6)
-    expect(table.size).toBe(6)
+    // Derived from the route constants, so adding a route cannot leave this
+    // assertion quietly wrong.
+    const owned = new Set([
+      ROUTE_LEDGER, ROUTE_AUDITS, ROUTE_KNOWN, ROUTE_CATALOG, ROUTE_ATTACH, ROUTE_DETACH, ROUTE_INJECTION,
+    ])
+    expect(routes.size).toBe(owned.size)
+    expect(table.size).toBe(owned.size)
   })
 })
 
@@ -361,5 +375,53 @@ describe('reads and registry state are bounded by construction', () => {
     expect(registry.known).toEqual([note])
     // The binding must be absent, not inherited from Object.prototype.
     expect(registry.sessions['__proto__']).toBeUndefined()
+  })
+})
+
+describe('the injection switch is per session and revokes what was sent', () => {
+  it('stops injecting, says so, and can be resumed', async () => {
+    const injected: { source?: { form?: string } }[] = []
+    const agents = { get: () => ({ inject: (message: { source?: { form?: string } }) => { injected.push(message) } }) }
+    const { routes } = mount({ agents })
+
+    const off = await call(routes, `${ROUTE_PREFIX}${ROUTE_INJECTION}`, {
+      method: 'POST',
+      body: { sessionId: 's1', enabled: false },
+    })
+    expect(off.status).toBe(200)
+    // The board has to be able to distinguish "switched off" from "no note".
+    // Responses ride an envelope: `{ok, data}`.
+    expect((JSON.parse(off.body) as { data: { source?: string } }).data.source).toBe('off')
+    // Switching off cannot unwrite the copy already in the session's history, so
+    // it revokes it instead of leaving the model to keep using it.
+    expect(injected).toHaveLength(1)
+    expect(injected[0]?.source?.form).toBe('notice')
+
+    const stillOff = await call(routes, `${ROUTE_PREFIX}${ROUTE_LEDGER}`, {
+      method: 'GET',
+      url: `${ROUTE_PREFIX}${ROUTE_LEDGER}?sessionId=s1`,
+    })
+    expect((JSON.parse(stillOff.body) as { data: { ref?: { source?: string } } }).data.ref?.source).toBe('off')
+
+    const on = await call(routes, `${ROUTE_PREFIX}${ROUTE_INJECTION}`, {
+      method: 'POST',
+      body: { sessionId: 's1', enabled: true },
+    })
+    expect((JSON.parse(on.body) as { data: { source?: string } }).data.source).not.toBe('off')
+    // Resuming does not revoke anything — nothing was sent, so nothing to void.
+    expect(injected).toHaveLength(1)
+  })
+
+  it('leaves other sessions alone', async () => {
+    const { routes } = mount()
+    await call(routes, `${ROUTE_PREFIX}${ROUTE_INJECTION}`, {
+      method: 'POST',
+      body: { sessionId: 's1', enabled: false },
+    })
+    const other = await call(routes, `${ROUTE_PREFIX}${ROUTE_LEDGER}`, {
+      method: 'GET',
+      url: `${ROUTE_PREFIX}${ROUTE_LEDGER}?sessionId=s2`,
+    })
+    expect((JSON.parse(other.body) as { data: { ref?: { source?: string } } }).data.ref?.source).not.toBe('off')
   })
 })

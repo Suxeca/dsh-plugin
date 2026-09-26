@@ -35,15 +35,18 @@
  */
 import { readdir, stat } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { AuditFile, AuditsPayload, CatalogPayload, Envelope, KnownPayload, LedgerPayload } from '../shared.ts'
 import { buildCatalog, type CatalogDeps } from './catalog.ts'
 import {
   attachLedger, auditInboxFor, detachLedger, readRegistry, resolveLedger, usableSessionId, type LedgerDeps,
+  setInjection,
 } from './ledgers.ts'
+import { injectionOffNotice } from './inject.ts'
 import { readBoundedFile } from './read.ts'
-import { ROUTE_ATTACH, ROUTE_AUDITS, ROUTE_CATALOG, ROUTE_DETACH, ROUTE_KNOWN, ROUTE_LEDGER, ROUTE_PREFIX } from '../shared-routes.ts'
+import { ROUTE_ATTACH, ROUTE_AUDITS, ROUTE_CATALOG, ROUTE_DETACH, ROUTE_INJECTION, ROUTE_KNOWN, ROUTE_LEDGER, ROUTE_PREFIX } from '../shared-routes.ts'
 
 /** Everything the routes need, supplied by the plugin entry. */
 export interface BoardRouteDeps extends LedgerDeps, CatalogDeps {
@@ -322,6 +325,27 @@ export function registerBoardRoutes(ctx: Context, deps: BoardRouteDeps): () => v
       const sessionId = sessionIdFromBody(body)
       if (sessionId === '') return { error: 'detach 需要合法的 sessionId' }
       await detachLedger(deps.registryPath, sessionId)
+      return resolveLedger(deps, sessionId)
+    })
+
+    post(ROUTE_INJECTION, async (body) => {
+      const sessionId = sessionIdFromBody(body)
+      if (sessionId === '') return { error: 'injection 需要合法的 sessionId' }
+      const enabled = body['enabled'] !== false
+      const changed = await setInjection(deps.registryPath, sessionId, enabled)
+      // Switching off cannot unwrite a body already committed to the session's
+      // history, so it says so rather than leaving the model to keep using a
+      // note the human believes they just switched off. A live session with no
+      // agent simply had nothing in context to revoke.
+      if (changed && !enabled) {
+        // The registry brands its session ids, and this one crossed a JSON
+        // boundary: it is an id the host itself handed the client, so the brand
+        // is true in fact and only needs saying again for the compiler here.
+        const agents = ctx.get('agents') as unknown as {
+          get(id: string): { inject(message: UserMessage): void } | undefined
+        } | undefined
+        agents?.get(sessionId)?.inject(injectionOffNotice())
+      }
       return resolveLedger(deps, sessionId)
     })
   } catch (error) {

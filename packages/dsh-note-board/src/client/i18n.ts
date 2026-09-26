@@ -63,6 +63,8 @@ export interface BoardStrings {
   readonly sourceAttached: string
   readonly sourceDiscovered: string
   readonly sourceNone: string
+  /** The note is there, but this session was told not to inject it. */
+  readonly sourceOff: string
   readonly unboundTitle: string
   /** The hint under an unbound session, split around the inline 笔记目录 link. */
   readonly unboundHintLead: string
@@ -74,6 +76,12 @@ export interface BoardStrings {
   readonly changeNoteTitle: string
   readonly detach: string
   readonly detachTitle: string
+  readonly injectOff: string
+  readonly injectOffTitle: string
+  readonly injectOn: string
+  readonly injectOnTitle: string
+  /** Stands in for the note title while injection is switched off. */
+  readonly injectOffState: string
   readonly readFailed: (detail: string) => string
   readonly noSessionId: string
   readonly refreshedAt: (time: string) => string
@@ -141,6 +149,7 @@ export const ZH: BoardStrings = {
   sourceAttached: '已附加',
   sourceDiscovered: '按项目自动发现',
   sourceNone: '未绑定',
+  sourceOff: '本会话已关闭注入',
   unboundTitle: '本会话未绑定笔记',
   unboundHintLead: '本会话还没有附加笔记。去',
   unboundHintTail: '挑一个。',
@@ -150,6 +159,11 @@ export const ZH: BoardStrings = {
   changeNoteTitle: '回到笔记目录',
   detach: '解附',
   detachTitle: '解除显式附加，回到按项目自动发现',
+  injectOff: '本会话不注入',
+  injectOffTitle: '停止把这份笔记注入本会话（其它会话不受影响）',
+  injectOn: '恢复注入',
+  injectOnTitle: '恢复把这份笔记注入本会话',
+  injectOffState: '注入已关闭',
   readFailed: detail => `读取失败：${detail}`,
   noSessionId: '这个视图没有拿到 sessionId，无法解析笔记。',
   refreshedAt: time => `刷新 ${time}`,
@@ -210,6 +224,7 @@ export const EN: BoardStrings = {
   sourceAttached: 'Attached',
   sourceDiscovered: 'Found by project',
   sourceNone: 'Unbound',
+  sourceOff: 'Injection off for this session',
   unboundTitle: 'No note bound to this session',
   unboundHintLead: 'No note is attached to this session. Open the',
   unboundHintTail: 'and pick one.',
@@ -219,6 +234,11 @@ export const EN: BoardStrings = {
   changeNoteTitle: 'Back to the note index',
   detach: 'Detach',
   detachTitle: 'Remove the explicit attachment and fall back to project discovery',
+  injectOff: 'No injection here',
+  injectOffTitle: 'Stop injecting this note into the current session; other sessions are unaffected',
+  injectOn: 'Resume injection',
+  injectOnTitle: 'Resume injecting this note into the current session',
+  injectOffState: 'Injection off',
   readFailed: detail => `Read failed: ${detail}`,
   noSessionId: 'This view received no sessionId, so it cannot resolve a note.',
   refreshedAt: time => `Refreshed ${time}`,

@@ -30,6 +30,8 @@
  *
  * @module @suxeca/dsh-note-board/host/inject
  */
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { readBoundedFile } from './read.ts'
 import { createHash } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
@@ -37,16 +39,32 @@ import type { Context } from '@deepseek-ai/cordis'
 // and the `agent` field dsh-agent merges into that context. Without these the
 // event name is not in `keyof Events` and the handler's arguments are `unknown`.
 import type { AssembleContext, PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
-import type {} from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { fingerprintPathFor, readFingerprints, rememberFingerprint } from './fingerprints.ts'
-import type { LedgerDeps } from './ledgers.ts'
+import type { LedgerDeps, LedgerRef } from './ledgers.ts'
 import { resolveLedger } from './ledgers.ts'
 
 /** Section name for the ledger body, kept stable for the human reading the prompt. */
 export const S_LEDGER = 'note-ledger'
 
-/** Section name for the change notice. */
-export const S_LEDGER_DELTA = 'note-ledger-delta'
+/**
+ * The `plugin` value that labels this plugin's context injections.
+ *
+ * The durable source's `kind` must be `'plugin'` — the persisted session format
+ * validates `kind` against a closed set, so a producer cannot invent its own.
+ * This string is what the client reads for the row's label, which is why it is
+ * a stable, readable name rather than a package id.
+ */
+export const INJECTION_PLUGIN = 'note-ledger'
+
+/**
+ * Longest one-line account a collapsed context row shows.
+ *
+ * Mirrors the platform's own bound (`CONTEXT_SUMMARY_MAX_CHARS`): the summary
+ * rides the collapsed row *and* is committed to the durable log, so it is kept
+ * to something a reader can take in without expanding anything.
+ */
+const DELTA_SUMMARY_MAX = 120
 
 /**
  * Section id → normalised body.
@@ -70,9 +88,52 @@ export interface InjectDeps extends LedgerDeps {
    * nothing else in the request path would notice.
    */
   readBudget: number
+  /**
+   * Where the injected sections land in the assembled prompt.
+   *
+   * Optional, defaulting to `last`. It exists because the choice is a real
+   * trade-off rather than a detail: `last` keeps the operating contract ahead of
+   * imported data, `first` establishes the definitions before anything else.
+   */
+  placement?: 'first' | 'last'
+  /**
+   * How the ledger body reaches the model.
+   *
+   * `'section'` (default) renders it into the system prompt. The agent loop
+   * keeps that prompt as surface node 0 and **replaces it in place** whenever
+   * the rendered text changes, so every edit to the note rewrites the head of
+   * the conversation: the provider prefix from the edit onward is recomputed,
+   * and everything after the system message — the whole conversation — sits in
+   * that recomputed region.
+   *
+   * `'snapshot'` delivers the same text as a durable user-role snapshot, the
+   * shape the platform's own runtime contexts use. It is re-appended when it
+   * changes, and again when compaction drops it, and appends land *after* the
+   * retained history — so an edit costs the snapshot itself rather than the
+   * conversation behind it.
+   */
+  delivery?: 'section' | 'snapshot'
 }
 
-/** Split `## <ID> ...` sections out of ledger text, hashing each body. */
+/**
+ * Read the model-visible text out of one of our own snapshots.
+ *
+ * Returns null for anything that is not this plugin's snapshot, so a caller can
+ * compare cheaply and can never mistake another producer's context for ours.
+ * @param message - candidate inbox item or `user/message` payload.
+ * @returns the snapshot text, or null when the message is not ours.
+ */
+function snapshotTextOf(message: unknown): string | null {
+  const record = message as {
+    readonly source?: { readonly plugin?: unknown, readonly form?: unknown }
+    readonly content?: readonly { readonly type?: unknown, readonly text?: unknown }[]
+  } | null
+  if (record?.source?.plugin !== INJECTION_PLUGIN || record.source.form !== 'snapshot') return null
+  if (!Array.isArray(record.content)) return null
+  return record.content.map(part => (part.type === 'text' && typeof part.text === 'string' ? part.text : '')).join('')
+}
+
+/** Split `## <ID> ...` sections out of ledger text, hashing each body. *//** Split `## <ID> ...` sections out of ledger text, hashing each body. */
 function fingerprint(text: string): Map<string, string> {
   const map = new Map<string, string>()
   let id: string | null = null
@@ -167,13 +228,28 @@ export function registerLedgerInjection(ctx: Context, deps: InjectDeps): () => v
     return writing
   }
 
-  const dispose = ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
-    const assembled = await next()
-    // `context.agent` is merged in by @deepseek-ai/dsh-agent; the type-only
-    // import above is what makes it visible here.
-    const session = context.agent?.session
-    if (session?.id === undefined) return assembled
+  /**
+   * The snapshot most recently queued per session, until the loop commits it.
+   *
+   * The loop claims the inbox *before* assembly and commits the claimed message
+   * *after* it, so a body queued one step ago is momentarily neither pending nor
+   * visible. Without remembering it, every change would be delivered twice: once
+   * when it was detected, once when the copy went looking for itself during that
+   * window and could not find the copy still in flight.
+   */
+  const inFlight = new Map<string, { id: string, text: string }>()
 
+  /**
+   * Resolve this agent's ledger and read its text.
+   *
+   * Shared by both entry points so the two deliveries can never disagree about
+   * which file a session is bound to or how much of it is read.
+   * @param agent - the agent whose session and cwd decide the binding.
+   * @returns the resolved note and its raw text, or null when there is none.
+   */
+  const loadLedger = async (agent: Agent): Promise<{ ref: LedgerRef, text: string } | null> => {
+    const session = agent.session
+    if (session.id === undefined) return null
     const ref = await resolveLedger(
       // The agent's own view of its working directory is authoritative here;
       // the sessions service may not even be mounted in a given deployment.
@@ -186,17 +262,151 @@ export function registerLedgerInjection(ctx: Context, deps: InjectDeps): () => v
     // No ledger for this session means inject NOTHING. Falling back to some
     // other ledger here is precisely how a session about something else would
     // end up silently carrying another project's frozen definitions.
-    if (ref.source === 'none') return assembled
-
-    let text = ''
+    // Both mean "inject nothing": `none` found no note, `off` was told not to.
+    if (ref.source === 'none' || ref.source === 'off') return null
     try {
       // Bounded and type-checked, like every other read of a note: this runs
       // every turn, so an unbounded read here would be a standing cost, and a
       // FIFO or device in the attachment would hang the turn itself.
-      text = (await readBoundedFile(ref.path, deps.readBudget)).text
+      return { ref, text: (await readBoundedFile(ref.path, deps.readBudget)).text }
     } catch {
-      return assembled
+      return null
     }
+  }
+
+  /**
+   * Make sure the session holds exactly one current copy of the ledger body.
+   *
+   * This mirrors how the platform delivers its own file-backed context: the
+   * message is built here, deduplicated against what is already pending or
+   * already in the retained history, and prepended to the agent's inbox, which
+   * the loop claims at the next step boundary. Because presence is decided by
+   * looking at the *surface*, a copy dropped by compaction is re-added on the
+   * next assembly without any bookkeeping of our own.
+   */
+  const ensureSnapshot = (agent: Agent | undefined, text: string): void => {
+    if (agent === undefined) return
+    if (agent.inbox.nextStep.some(message => snapshotTextOf(message) === text)) return
+    const session = agent.session
+    const retained = session.surface.nodes.some((seq) => {
+      const event = session.eventAt(seq)
+      return event?.type === 'user/message' && snapshotTextOf(event.data) === text
+    })
+    // Queued and not yet committed: the loop claims before assembling and
+    // commits afterwards, so this is a copy still in flight rather than a
+    // missing one. The marker is dropped by the commit event, not by looking
+    // around, so a body that is committed and *then* compacted away is still
+    // re-sent — which is the whole point of holding a marker at all.
+    if (inFlight.get(session.id)?.text === text) return
+    if (retained) return
+    try {
+      const message = createUserMessage({
+        content: [{ type: 'text', text }],
+        source: {
+          kind: 'plugin',
+          plugin: INJECTION_PLUGIN,
+          form: 'snapshot',
+          sections: [{ name: S_LEDGER, text }],
+        },
+      })
+      agent.inbox.prepend('next-step', message)
+      inFlight.set(session.id, { id: message.id, text })
+    } catch (error) {
+      console.error(
+        '[dsh-note-board] could not queue the ledger snapshot:',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+  }
+
+  /**
+   * Deliver the body into the inbox *before* the first step claims it.
+   *
+   * The inbox is claimed at the start of a step, before the prompt is assembled
+   * (`agent-loop/src/agent.ts`), so anything queued while assembling can only
+   * reach the model one step later. The first step of a session is exactly where
+   * the ledger has to be, and delivery is supported from this extension point —
+   * which fires while the agent is published, before any turn runs.
+   */
+  const primeOnStart = deps.delivery === 'snapshot'
+    ? ctx.on('agent/session-start', (payload: { agent?: Agent }) => {
+      const agent = payload.agent
+      if (agent === undefined || agent.session?.id === undefined) return
+      void (async () => {
+        const loaded = await loadLedger(agent)
+        if (loaded === null) return
+        const text = ledgerBody(loaded.ref, loaded.text, deps.injectBudget)
+        if (text !== null) ensureSnapshot(agent, text)
+      })().catch((error: unknown) => {
+        console.error(
+          '[dsh-note-board] could not prime the ledger snapshot:',
+          error instanceof Error ? error.message : String(error),
+        )
+      })
+    })
+    : undefined
+
+  /**
+   * Queue the ledger-change notice as an injected context row.
+   *
+   * This used to be a second system-prompt section. It is a context injection
+   * now because the notice is the one part of this feature that is worth
+   * *seeing*: it lands in the transcript as a collapsed `上下文注入 · note-ledger`
+   * row, so a reader can tell when the note moved and open it to see what
+   * moved, instead of having to diff the system prompt across two requests.
+   *
+   * `kind` is `'plugin'` because the persisted session format validates `kind`
+   * against a closed set — a producer cannot invent one — and `form: 'notice'`
+   * is what gives the collapsed row its one-line account.
+   *
+   * Failure here must never break the turn: the body is already assembled and
+   * authoritative, and a notice that could not be queued costs one missing
+   * announcement, not a lost request.
+   */
+  const notifyChange = (agent: Agent | undefined, lines: readonly string[]): void => {
+    if (agent === undefined) return
+    const account = lines.map(line => line.replace(/^[-\s]+/, '')).join('；')
+    try {
+      agent.inject(createUserMessage({
+        content: [{
+          type: 'text',
+          text: [
+            '[LEDGER DELTA] 笔记在你上次读到它之后发生了变化——可能来自另一个会话，也可能来自你自己本轮的写入。',
+            ...lines,
+            '',
+            '系统提示里的 [FROZEN LEDGER] 正文是**最新版本，以它为准**。',
+            '你上下文里这些条目的旧副本**已经作废**：不要引用它、不要沿用它的写法或约定；',
+            '若你前面的结论依赖旧版本，先按新版本把那一步重做，而不是在旧结论上继续叠加。',
+          ].join('\n'),
+        }],
+        source: {
+          kind: 'plugin',
+          plugin: INJECTION_PLUGIN,
+          form: 'notice',
+          summary: `笔记已更新：${account}`.slice(0, DELTA_SUMMARY_MAX),
+        },
+      }))
+    } catch (error) {
+      console.error(
+        '[dsh-note-board] could not queue a ledger-change notice:',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+  }
+
+  const disposeAssemble = ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+    const assembled = await next()
+    // `context.agent` is merged in by @deepseek-ai/dsh-agent; the type-only
+    // import above is what makes it visible here.
+    const agent = context.agent
+    // `context.agent` is merged in by @deepseek-ai/dsh-agent; the type-only
+    // import above is what makes it visible here.
+    if (agent === undefined || agent.session?.id === undefined) return assembled
+    const session = agent.session
+
+    const loaded = await loadLedger(agent)
+    if (loaded === null) return assembled
+    const { ref, text } = loaded
 
     const current = fingerprint(text)
     // The baseline read here is the one written before the last restart, so an
@@ -213,8 +423,8 @@ export function registerLedgerInjection(ctx: Context, deps: InjectDeps): () => v
     // would be pure churn.
     if (previous === null || change !== null) await remember(session.id, ref.path, current)
 
-    // Order is the array's order: assembled sections carry no rank, so
-    // prepending is how a contribution gets ahead of the persona.
+    // Where the sections land is decided at the end of this handler, because
+    // order is presentation only — see the note there.
     const injected: PromptAssembly['sections'] = []
 
     if (change !== null) {
@@ -222,39 +432,121 @@ export function registerLedgerInjection(ctx: Context, deps: InjectDeps): () => v
       if (change.added.length > 0) lines.push(`- 新增：${change.added.join('、')}`)
       if (change.changed.length > 0) lines.push(`- 被替换：${change.changed.join('、')}`)
       if (change.removed.length > 0) lines.push(`- 被删除：${change.removed.join('、')}`)
-      injected.push({
-        name: S_LEDGER_DELTA,
-        text: [
-          '[LEDGER DELTA] 笔记在你上次读到它之后发生了变化——可能来自另一个会话，也可能来自你自己本轮的写入。',
-          ...lines,
-          '',
-          '下面 [FROZEN LEDGER] 的正文是**最新版本，以它为准**。',
-          '你上下文里这些条目的旧版本**已经作废**：不要引用它、不要沿用它的写法或约定；',
-          '若你前面的结论依赖旧版本，先按新版本把那一步重做，而不是在旧结论上继续叠加。',
-        ].join('\n'),
-      })
+      notifyChange(agent, lines)
     }
 
-    if (text.trim() !== '') {
-      const body = text.length > deps.injectBudget
-        ? `${text.slice(0, deps.injectBudget)}\n\n[... 笔记已截断；需要后续条目时请另行读取该文件 ...]`
-        : text
-      const head = [
-        '[FROZEN LEDGER] 以下定义已冻结。**不得**在未显式声明 `[SYMBOL MUTATION]` 的情况下改写它们，',
-        '也不得在推理中悄悄换用别的写法；引用时直接沿用这里的定义与约定。',
-      ]
-      // State the source only for discovery. An explicit attachment is the
-      // human's own act and needs no reminder; an automatic binding must say
-      // which project it came from, or the binding is invisible again.
-      if (ref.source === 'discovered') head.push(`（本会话的笔记按其工作目录自动发现：${ref.path}）`)
-      injected.push({ name: S_LEDGER, text: [...head, '', body.trim()].join('\n') })
+    const ledgerText = ledgerBody(ref, text, deps.injectBudget)
+    if (ledgerText !== null) {
+      // Two deliveries, one text. See `InjectDeps.delivery` for the trade-off.
+      if (deps.delivery === 'snapshot') ensureSnapshot(agent, ledgerText)
+      else injected.push({ name: S_LEDGER, text: ledgerText })
     }
-
     if (injected.length === 0) return assembled
     const names = new Set(injected.map(section => section.name))
     const rest = assembled.sections.filter(section => !names.has(section.name))
-    return { ...assembled, sections: [...injected, ...rest] }
+    return deps.placement === 'first'
+      ? { ...assembled, sections: [...injected, ...rest] }
+      : { ...assembled, sections: [...rest, ...injected] }
   })
 
-  return dispose
+  /**
+   * Drop the in-flight marker as soon as the loop commits the message.
+   *
+   * This is the same signal the platform's own runtime-context projection uses
+   * to learn where its snapshot landed. Observation alone would be wrong: a body
+   * can be committed and compacted away before any assembly ever sees it, and
+   * that body has to be sent again.
+   */
+  const forgetCommitted = ctx.on('session/event', (subject: { id?: string }, event: unknown) => {
+    const record = event as { type?: unknown, data?: { id?: unknown } } | null
+    if (record?.type !== 'user/message') return
+    const id = record.data?.id
+    const sessionId = subject?.id
+    if (typeof id !== 'string' || typeof sessionId !== 'string') return
+    if (inFlight.get(sessionId)?.id === id) inFlight.delete(sessionId)
+  })
+
+  const forgetOnDispose = ctx.on('agent/disposed', (payload: { agent?: Agent }) => {
+    const id = payload.agent?.session?.id
+    if (id !== undefined) inFlight.delete(id)
+  })
+
+  return () => {
+    disposeAssemble()
+    primeOnStart?.()
+    forgetOnDispose()
+    forgetCommitted()
+  }
+}
+
+/**
+ * The notice that revokes a body this session already received.
+ *
+ * Switching injection off cannot unwrite the snapshot that is already committed
+ * to the session's history — history is append-only — so the honest move is to
+ * say so, in the same shape as any other change: an injected row that names the
+ * old copy as void. Without it the model would keep using a note the human
+ * believes they just switched off.
+ * @returns the message to inject.
+ */
+export function injectionOffNotice(): UserMessage {
+  return createUserMessage({
+    content: [{
+      type: 'text',
+      text: [
+        '[FROZEN LEDGER] 本会话的笔记注入**已关闭**。',
+        '此前注入的笔记副本**已作废**：不要再引用它、不要沿用它的写法或约定；',
+        '若你前面的结论依赖它，先说明这一限制，而不是继续按它推进。',
+        '需要继续使用时，请重新开启注入。',
+      ].join('\n'),
+    }],
+    source: {
+      kind: 'plugin',
+      plugin: INJECTION_PLUGIN,
+      form: 'notice',
+      summary: '笔记注入已关闭（旧副本作废）',
+    },
+  })
+}
+
+/**
+ * The model-visible text for one note: a contract header plus the body, clamped
+ * to the injection budget.
+ *
+ * Shared by both deliveries, because the text the model reads must not depend on
+ * which channel carried it.
+ * @param ref - resolved note, whose source decides whether the header names it.
+ * @param text - full note text read under the read budget.
+ * @param budget - character cap on the body.
+ * @returns the assembled text, or null when the note has no visible text.
+ */
+function ledgerBody(ref: LedgerRef, text: string, budget: number): string | null {
+  if (text.trim() === '') return null
+  const body = text.length > budget
+    ? `${text.slice(0, budget)}\n\n[... 笔记已截断；需要后续条目时请另行读取该文件 ...]`
+    : text
+  const head = [
+    '[FROZEN LEDGER] 以下定义已冻结。**不得**在未显式声明 `[SYMBOL MUTATION]` 的情况下改写它们，',
+    '也不得在推理中悄悄换用别的写法；引用时直接沿用这里的定义与约定。',
+    // The change notice is claimed at a *later* step boundary than the body, so
+    // the authority claim has to live in the body itself, which is present for
+    // the step in between.
+    '本节即最新版本：若你上下文里的副本与本节不一致，**以本节为准**。',
+    // Presence is not use, and citation is not transcription. Measured twice:
+    // with the definitions merely present, a model asked to "first understand
+    // this topic" read the repository's own derivation notes and never cited an
+    // entry; told to cite entry ids, it named its entry twice while presenting
+    // the repository's older expression instead. A label attached to a different
+    // formula reads as compliance, which makes it worse than silence. So the
+    // text demands the transcription itself, before anything is derived from it.
+    '本轮讨论若涉及下列已冻结的对象，**先逐字抄录**相关条目的表达式与分量定义，再在其基础上推进；',
+    '只贴条目编号不算完成这一步。若你要给出的式子与条目不逐项一致',
+    '（前置系数、实部还是模方、相位、求和变量与上下界都要逐项比），**先停下来说明冲突**，',
+    '而不是另给一个式子、或改用你自己的推导与仓库代码里的另一种写法。',
+  ]
+  // State the source only for discovery. An explicit attachment is the human's
+  // own act and needs no reminder; an automatic binding must say which project
+  // it came from, or the binding is invisible again.
+  if (ref.source === 'discovered') head.push(`（本会话的笔记按其工作目录自动发现：${ref.path}）`)
+  return [...head, '', body.trim()].join('\n')
 }

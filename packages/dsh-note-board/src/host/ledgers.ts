@@ -65,7 +65,14 @@ export const DEFAULT_AUDIT_INBOX = '.note-audit-inbox'
 export const MAX_KNOWN_LEDGERS = 256
 
 /** How a session's ledger was decided. */
-export type LedgerSource = 'attached' | 'discovered' | 'none'
+/**
+ * Where a session's note came from.
+ *
+ * `'off'` is not `'none'`: the note may be perfectly findable, but this session
+ * was explicitly told not to inject it. Keeping them distinct is what lets the
+ * board say "关闭注入" instead of the misleading "未绑定".
+ */
+export type LedgerSource = 'attached' | 'discovered' | 'none' | 'off'
 
 /** The resolved ledger for one session. */
 export interface LedgerRef {
@@ -83,6 +90,14 @@ export interface LedgerRef {
 export interface BoardRegistry {
   /** sessionId → absolute ledger path. */
   sessions: Record<string, string>
+  /**
+   * Sessions explicitly told not to inject.
+   *
+   * A list rather than a sentinel path inside `sessions`, so no real path can
+   * ever collide with the opt-out, and so re-enabling restores whatever the
+   * session was bound to (an attachment survives being switched off).
+   */
+  off: string[]
   /** Ledgers the human has attached before, offered by the switcher. */
   known: string[]
 }
@@ -108,6 +123,12 @@ export interface LedgerDeps {
 
 /** A ledger with no session binding — returned instead of throwing. */
 const NONE: LedgerRef = { source: 'none', path: '', title: '' }
+
+/** The explicit opt-out: this session keeps its note, but injects nothing. */
+const OFF: LedgerRef = { source: 'off', path: '', title: '' }
+
+/** Bound on how many opt-outs one registry remembers. */
+export const MAX_OFF_SESSIONS = 256
 
 /**
  * Directory names that are containers rather than identities.
@@ -198,8 +219,8 @@ export const MAX_REGISTRY_CHARS = 1024 * 1024
 export async function readRegistry(registryPath: string): Promise<BoardRegistry> {
   try {
     const parsed = JSON.parse((await readBoundedFile(registryPath, MAX_REGISTRY_CHARS)).text) as unknown
-    if (typeof parsed !== 'object' || parsed === null) return { sessions: {}, known: [] }
-    const raw = parsed as { sessions?: unknown, known?: unknown }
+    if (typeof parsed !== 'object' || parsed === null) return emptyRegistry()
+    const raw = parsed as { sessions?: unknown, off?: unknown, known?: unknown }
     // Null-prototype: a key inherited from `Object.prototype` must not be
     // reachable as a session binding.
     const sessions: Record<string, string> = Object.create(null) as Record<string, string>
@@ -208,16 +229,25 @@ export async function readRegistry(registryPath: string): Promise<BoardRegistry>
         if (usableSessionId(id) && typeof path === 'string' && path !== '') sessions[id] = path
       }
     }
+    const off = Array.isArray(raw.off)
+      ? [...new Set(raw.off.filter((entry): entry is string => typeof entry === 'string' && usableSessionId(entry)))]
+        .slice(-MAX_OFF_SESSIONS)
+      : []
     const known = Array.isArray(raw.known)
       ? raw.known.filter((entry): entry is string => typeof entry === 'string' && entry !== '').slice(-MAX_KNOWN_LEDGERS)
       : []
-    return { sessions, known }
+    return { sessions, off, known }
   } catch {
     // A missing file is the normal first-run state, and a corrupt one must not
     // take the board down — losing attachments is recoverable, a dead view is
     // not. Starting empty is the right failure for both.
-    return { sessions: Object.create(null) as Record<string, string>, known: [] }
+    return emptyRegistry()
   }
+}
+
+/** The registry as it reads with nothing on disk: valid, and empty. */
+function emptyRegistry(): BoardRegistry {
+  return { sessions: Object.create(null) as Record<string, string>, off: [], known: [] }
 }
 
 /** Distinguishes concurrent writers' temp files within one process. */
@@ -241,6 +271,10 @@ export async function writeRegistry(registryPath: string, registry: BoardRegistr
  */
 export async function resolveLedger(deps: LedgerDeps, sessionId: string): Promise<LedgerRef> {
   const registry = await readRegistry(deps.registryPath)
+  // The opt-out is checked first, and beats both an attachment and discovery:
+  // otherwise "关闭" would be undone by the next assembly re-discovering the
+  // very note the human just switched off.
+  if (registry.off.includes(sessionId)) return OFF
   const attached = registry.sessions[sessionId]
   if (typeof attached === 'string' && attached !== '' && existsSync(attached)) {
     return { source: 'attached', path: attached, title: ledgerTitle(attached) }
@@ -295,6 +329,37 @@ export async function attachLedger(
 }
 
 /** Drop a session's explicit attachment, returning it to discovery. */
+/**
+ * Turn injection on or off for one session.
+ *
+ * Off is remembered rather than expressed by removing the binding, so switching
+ * back on restores what the session had — an explicit attachment if there was
+ * one, discovery otherwise.
+ * @param registryPath - the board registry file.
+ * @param sessionId - the session being switched.
+ * @param enabled - false to stop injecting, true to resume.
+ * @returns whether the stored state actually changed.
+ */
+export async function setInjection(
+  registryPath: string,
+  sessionId: string,
+  enabled: boolean,
+): Promise<boolean> {
+  const registry = await readRegistry(registryPath)
+  const wasOff = registry.off.includes(sessionId)
+  if (enabled === !wasOff) return false
+  registry.off = enabled
+    ? registry.off.filter(id => id !== sessionId)
+    : [...registry.off, sessionId].slice(-MAX_OFF_SESSIONS)
+  await writeRegistry(registryPath, registry)
+  return true
+}
+
+/** Whether a session is currently switched off, for a caller that only reads. */
+export async function injectionEnabled(registryPath: string, sessionId: string): Promise<boolean> {
+  return !(await readRegistry(registryPath)).off.includes(sessionId)
+}
+
 export async function detachLedger(registryPath: string, sessionId: string): Promise<void> {
   const registry = await readRegistry(registryPath)
   if (registry.sessions[sessionId] === undefined) return

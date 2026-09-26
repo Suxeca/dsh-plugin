@@ -34,7 +34,7 @@ import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   AuditFile, AuditsPayload, CatalogPayload, Envelope, LedgerPayload, LedgerRef,
 } from '../shared.ts'
-import { ROUTE_ATTACH, ROUTE_AUDITS, ROUTE_CATALOG, ROUTE_DETACH, ROUTE_LEDGER, ROUTE_PREFIX } from '../shared-routes.ts'
+import { ROUTE_ATTACH, ROUTE_AUDITS, ROUTE_CATALOG, ROUTE_DETACH, ROUTE_INJECTION, ROUTE_LEDGER, ROUTE_PREFIX } from '../shared-routes.ts'
 import { CatalogView } from './Catalog.tsx'
 import { boardStrings, markdownLabels, toggleBoardLocale, useBoardLocale, useBoardStrings, type BoardStrings } from './i18n.ts'
 import { CONTENT_COLUMN, T } from './theme.ts'
@@ -139,6 +139,7 @@ function sourceLabel(ref: LedgerRef, t: BoardStrings): { text: string, color: st
   switch (ref.source) {
     case 'attached': return { text: t.sourceAttached, color: T.accent }
     case 'discovered': return { text: t.sourceDiscovered, color: T.dim }
+    case 'off': return { text: t.sourceOff, color: T.warn }
     default: return { text: t.sourceNone, color: T.warn }
   }
 }
@@ -228,6 +229,10 @@ function BindingBar(props: {
   readonly ledgerRef: LedgerRef | null
   readonly onDetach: () => void
   readonly onCatalog: () => void
+  /** Stop injecting this note into the current session. */
+  readonly onInjectionOff: () => void
+  /** Resume injecting it. */
+  readonly onInjectionOn: () => void
 }) {
   const t = useBoardStrings()
   const ref = props.ledgerRef
@@ -243,7 +248,11 @@ function BindingBar(props: {
   },
   ref.source === 'none'
     ? h('span', { style: { color: T.warn, fontWeight: 600 } }, t.unboundTitle)
-    : h('span', { style: { color: T.text, fontWeight: 600 } }, '∑ ' + ref.title),
+    : ref.source === 'off'
+      // The note exists (or existed); what changed is whether this session may
+      // read it, so say that rather than showing an empty title.
+      ? h('span', { style: { color: T.warn, fontWeight: 600 } }, t.injectOffState)
+      : h('span', { style: { color: T.text, fontWeight: 600 } }, '∑ ' + ref.title),
   h('span', {
     style: {
       fontSize: 10, color: source.color,
@@ -251,7 +260,7 @@ function BindingBar(props: {
       borderRadius: 6, padding: '0 6px', lineHeight: '16px',
     },
   }, source.text),
-  ref.source !== 'none'
+  ref.path !== ''
     ? h('span', { style: { color: T.dim, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 420 } }, ref.path)
     : null,
   ref.source === 'discovered' && ref.root !== undefined
@@ -259,6 +268,11 @@ function BindingBar(props: {
     : null,
   h('span', { style: { marginLeft: 'auto', display: 'flex', gap: 6 } },
     h(Button, { label: t.changeNote, title: t.changeNoteTitle, onClick: props.onCatalog }),
+    // The switch is the answer to "how do I not use this in this conversation":
+    // it belongs next to the binding it overrides, not in a global setting.
+    ref.source === 'off'
+      ? h(Button, { label: t.injectOn, title: t.injectOnTitle, onClick: props.onInjectionOn })
+      : h(Button, { label: t.injectOff, title: t.injectOffTitle, onClick: props.onInjectionOff }),
     ref.source === 'attached'
       ? h(Button, { label: t.detach, title: t.detachTitle, onClick: props.onDetach })
       : null))
@@ -429,8 +443,17 @@ function Board({ sessionId }: NoteBoardViewProps) {
     }
   }, [sid, load])
 
+  const setInjection = useCallback(async (enabled: boolean) => {
+    try {
+      await postJson(ROUTE_INJECTION, { sessionId: sid, enabled })
+      await load()
+    } catch (cause) {
+      setAttachProblem({ kind: 'attach', message: cause instanceof Error ? cause.message : String(cause) })
+    }
+  }, [sid, load])
+
   const ref = ledger?.ref ?? null
-  const unbound = ref !== null && ref.source === 'none'
+  const unbound = ref !== null && (ref.source === 'none' || ref.source === 'off')
   const verdicts = audits?.files ?? []
   const pending = verdicts.filter(file => !file.consumed).length
 
@@ -548,7 +571,13 @@ function Board({ sessionId }: NoteBoardViewProps) {
           onRefresh: () => { void load() },
         })
       : h('div', null,
-          h(BindingBar, { ledgerRef: ref, onDetach: () => { void detach() }, onCatalog: () => setSegment('catalog') }),
+          h(BindingBar, {
+            ledgerRef: ref,
+            onDetach: () => { void detach() },
+            onCatalog: () => setSegment('catalog'),
+            onInjectionOff: () => { void setInjection(false) },
+            onInjectionOn: () => { void setInjection(true) },
+          }),
           problem !== null
             ? h('div', { style: { color: T.error, fontSize: 12, padding: '0 2px 10px' } }, problemText(problem, t))
             : null,

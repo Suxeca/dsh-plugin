@@ -26,3 +26,6 @@ export const ROUTE_ATTACH = '/attach'
 
 /** POST a detach, returning the session to discovery. */
 export const ROUTE_DETACH = '/detach'
+
+/** POST the per-session injection switch. */
+export const ROUTE_INJECTION = '/injection'

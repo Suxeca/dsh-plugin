@@ -13,7 +13,15 @@ export interface Envelope<T> {
 }
 
 /** How a session's ledger was decided, mirrored from the host resolver. */
-export type LedgerSource = 'attached' | 'discovered' | 'none'
+/**
+ * Where a session's note came from, or that it was deliberately switched off.
+ *
+ * `'off'` is distinct from `'none'` on purpose: the note may be perfectly
+ * findable, but this session was told not to inject it — and the board has to be
+ * able to say so, because a switch the human cannot see is the same defect as a
+ * binding the human cannot see.
+ */
+export type LedgerSource = 'attached' | 'discovered' | 'none' | 'off'
 
 /**
  * The ledger bound to one session.

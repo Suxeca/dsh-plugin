@@ -30,7 +30,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import {
   MAX_FINGERPRINTS, MAX_STORE_CHARS, fingerprintPathFor, readFingerprints, rememberFingerprint, writeFingerprints,
 } from '../src/host/fingerprints.ts'
-import { S_LEDGER, S_LEDGER_DELTA, registerLedgerInjection } from '../src/host/inject.ts'
+import { INJECTION_PLUGIN, S_LEDGER, registerLedgerInjection } from '../src/host/inject.ts'
 import { attachLedger } from '../src/host/ledgers.ts'
 
 /** The ledger shape the whole feature is about: numbered, named sections. */
@@ -79,42 +79,131 @@ interface Section { readonly name: string, readonly text: string }
  * `mount()` sharing the same `registryPath` **is** a process restart — the only
  * state that crosses is the file.
  */
-function mount(): { turn: (sessionId: string) => Promise<readonly Section[]> } {
-  const listeners: Array<(a: unknown, c: unknown, n: () => Promise<unknown>) => Promise<unknown>> = []
+function mount(placement?: 'first' | 'last', delivery?: 'section' | 'snapshot'): {
+  turn: (sessionId: string) => Promise<readonly Section[]>
+  /** Fire the session-start extension point the way the loop does. */
+  start: (sessionId: string) => Promise<void>
+  /** Context-injection messages this mount queued, in order. */
+  readonly notices: readonly InjectedNotice[]
+  /** Everything the session's surface currently retains, oldest first. */
+  readonly surface: readonly InjectedNotice[]
+  /** Drop the retained surface, the way compaction does. */
+  compact: () => void
+} {
+  const byEvent = new Map<string, ((...args: never[]) => unknown)[]>()
   const ctx = {
-    on: (_event: string, listener: (a: unknown, c: unknown, n: () => Promise<unknown>) => Promise<unknown>) => {
-      listeners.push(listener)
+    on: (event: string, listener: (...args: never[]) => unknown) => {
+      const list = byEvent.get(event) ?? []
+      list.push(listener)
+      byEvent.set(event, list)
       return () => {}
     },
   } as unknown as Context
+  const notices: InjectedNotice[] = []
+  /**
+   * Pending inbox items, and what the surface retains.
+   *
+   * The loop claims the inbox *before* it assembles each step
+   * (`agent-loop/src/agent.ts`), so the harness claims first too: a message
+   * queued during one turn is visible from the next one onward. Modelling that
+   * order is the whole point — it is what the delivery trade-off turns on.
+   */
+  const pending: InjectedNotice[] = []
+  const surface: InjectedNotice[] = []
+
+  const agentFor = (id: string): unknown => ({
+    session: {
+      id,
+      header: { cwd: project },
+      surface: { nodes: surface.map((_, index) => index) },
+      eventAt: (seq: number) => (surface[seq] === undefined
+        ? undefined
+        : { type: 'user/message', data: surface[seq] }),
+    },
+    inbox: {
+      get nextStep(): readonly InjectedNotice[] { return pending },
+      prepend: (_target: string, message: InjectedNotice) => {
+        notices.push(message)
+        pending.push(message)
+      },
+    },
+    // `inject` queues to the same pending list the loop claims from, so both
+    // channels are modelled the way the loop actually treats them.
+    inject: (message: InjectedNotice) => {
+      notices.push(message)
+      pending.push(message)
+    },
+  })
+
   registerLedgerInjection(ctx, {
     cwdOf: () => project,
     registryPath,
     injectBudget: 6000,
     // The injection read is bounded like every other read; the fixtures are tiny.
     readBudget: 262144,
+    placement,
+    delivery,
   })
   return {
-    turn: async (sessionId: string): Promise<readonly Section[]> => {
-      const listener = listeners[0]
+    notices,
+    surface,
+    compact: (): void => { surface.length = 0 },
+    start: async (id: string): Promise<void> => {
+      for (const listener of byEvent.get('agent/session-start') ?? []) listener({ agent: agentFor(id) })
+      // The extension point is a synchronous emit, so the delivery it kicks off
+      // is fire-and-forget; wait for the read behind it instead of guessing.
+      const deadline = Date.now() + 1000
+      while (notices.length === 0 && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 5))
+      }
+    },
+    turn: async (id: string): Promise<readonly Section[]> => {
+      // The loop's real order, which is what makes this interesting: the inbox
+      // is claimed *before* assembly, and the claimed message is committed to
+      // the surface only *after* it. So during this assembly the previous
+      // turn's body is neither pending nor visible — the window in which a
+      // naive presence check queues a duplicate.
+      const claimed = pending.splice(0, pending.length)
+      const listener = (byEvent.get('system-prompt/assemble') ?? [])[0]
       if (listener === undefined) throw new Error('injection did not register a listener')
       const assembled = await listener(
         null,
-        { agent: { session: { id: sessionId, header: { cwd: project } } } },
+        { agent: agentFor(id) },
         async () => ({ sections: [{ name: 'persona', text: 'PERSONA' }] }),
       ) as { sections: readonly Section[] }
+      surface.push(...claimed)
+      // The loop commits the claimed messages after the assembly, and the
+      // session announces each commit.
+      for (const message of claimed) {
+        for (const listener of byEvent.get('session/event') ?? []) {
+          listener({ id }, { type: 'user/message', data: message })
+        }
+      }
       return assembled.sections
     },
   }
 }
 
-/** Names of the sections the ledger feature injected, in order. */
-const injectedNames = (sections: readonly Section[]): string[] =>
-  sections.filter(section => section.name === S_LEDGER || section.name === S_LEDGER_DELTA).map(section => section.name)
+/** One context-injection message, narrowed to the fields these tests read. */
+interface InjectedNotice {
+  readonly content: readonly { readonly type: string, readonly text: string }[]
+  readonly source: { readonly kind: string, readonly plugin: string, readonly form?: string, readonly summary?: string }
+}
 
-/** The delta notice's text, or null when no notice was injected. */
-const deltaText = (sections: readonly Section[]): string | null =>
-  sections.find(section => section.name === S_LEDGER_DELTA)?.text ?? null
+/** Names of the system-prompt sections the ledger feature contributed, in order. */
+const injectedNames = (sections: readonly Section[]): string[] =>
+  sections.filter(section => section.name === S_LEDGER).map(section => section.name)
+
+/**
+ * The text of the single change notice a mount queued, or null when it queued
+ * none.
+ *
+ * The notice is a context injection now, not a section: it is the visible half
+ * of the feature (a `上下文注入 · note-ledger` row in the transcript), so these
+ * assertions moved from the assembled sections to the injected message.
+ */
+const noticeText = (mount: { readonly notices: readonly InjectedNotice[] }): string | null =>
+  mount.notices[0]?.content.map(part => part.text).join('\n') ?? null
 
 describe('the delta baseline survives a restart', () => {
   it('announces nothing on a session never read before', async () => {
@@ -130,8 +219,13 @@ describe('the delta baseline survives a restart', () => {
     await process.turn('session-live')
     writeFileSync(ledger, ledgerText('BODY-TWO'), 'utf8')
     const sections = await process.turn('session-live')
-    expect(injectedNames(sections)).toEqual([S_LEDGER_DELTA, S_LEDGER])
-    expect(deltaText(sections)).toContain('FROZEN-1')
+    // The body stays a section (guaranteed every turn); the notice is injected.
+    expect(injectedNames(sections)).toEqual([S_LEDGER])
+    expect(process.notices).toHaveLength(1)
+    expect(noticeText(process)).toContain('FROZEN-1')
+    // The row the UI renders is labelled from the durable source.
+    expect(process.notices[0]?.source).toMatchObject({ kind: 'plugin', plugin: INJECTION_PLUGIN, form: 'notice' })
+    expect(process.notices[0]?.source.summary).toContain('FROZEN-1')
   })
 
   it('announces a change made while DSH was down, on the resumed first turn', async () => {
@@ -140,11 +234,11 @@ describe('the delta baseline survives a restart', () => {
     // The human edits the ledger with no DSH running.
     writeFileSync(ledger, ledgerText('BODY-EDITED-WHILE-DOWN'), 'utf8')
     // Process B, sharing only the store file.
-    const sections = await mount().turn('session-resumed')
-    // Before the fix this was `[S_LEDGER]` — silent, and the model keeps
+    const process = mount()
+    await process.turn('session-resumed')
+    // Before the fix this announced nothing — silent, and the model keeps
     // reasoning from the pre-restart text in its history.
-    expect(injectedNames(sections)).toEqual([S_LEDGER_DELTA, S_LEDGER])
-    expect(deltaText(sections)).toContain('被替换：FROZEN-1')
+    expect(noticeText(process)).toContain('被替换：FROZEN-1')
   })
 
   it('still announces nothing when the ledger did not move across the restart', async () => {
@@ -165,13 +259,13 @@ describe('the delta baseline survives a restart', () => {
     expect(attached.ok).toBe(true)
 
     // A cross-ledger diff would say every section was added and removed at once.
-    const rebound = await process.turn('session-rebound')
-    expect(deltaText(rebound)).toBeNull()
+    await process.turn('session-rebound')
+    expect(noticeText(process)).toBeNull()
     // ...and the rebind re-baselines, so the NEXT edit of the new ledger *is*
     // announced rather than being swallowed as a second first-read.
     writeFileSync(otherLedger, '# 另一本\n\n## OPEN-9 · 别的\n\n改过的正文\n', 'utf8')
-    const edited = await process.turn('session-rebound')
-    expect(deltaText(edited)).toContain('OPEN-9')
+    await process.turn('session-rebound')
+    expect(noticeText(process)).toContain('OPEN-9')
   })
 })
 
@@ -272,5 +366,125 @@ describe('the store is a bounded, independently validated input', () => {
     }))
     await expect(Promise.all(writers)).resolves.toBeDefined()
     expect(Object.keys(await readFingerprints(store)).length).toBeGreaterThan(0)
+  })
+})
+
+describe('the injected sections land after the contract by default', () => {
+  it('appends, so the persona comes first', async () => {
+    const sections = await mount().turn('session-order-default')
+    expect(sections.map(section => section.name)).toEqual(['persona', S_LEDGER])
+  })
+
+  it('prepends only when the deployment asks for it', async () => {
+    const sections = await mount('first').turn('session-order-first')
+    expect(sections.map(section => section.name)).toEqual([S_LEDGER, 'persona'])
+  })
+})
+
+describe('the section states a duty to consult, not only an authority', () => {
+  it('demands transcription, not just a citation', async () => {
+    // Presence is not use, and citation is not transcription: measured, a model
+    // named its entry twice while presenting the repository's older expression.
+    // A label on a different formula reads as compliance, so the wording has to
+    // ask for the transcription itself. This is the regression guard for it.
+    const sections = await mount().turn('session-duty')
+    const ledger = sections.find(section => section.name === S_LEDGER)
+    expect(ledger?.text).toContain('先逐字抄录')
+    expect(ledger?.text).toContain('只贴条目编号不算完成这一步')
+    expect(ledger?.text).toContain('先停下来说明冲突')
+  })
+})
+
+describe('snapshot delivery moves the body off the system prompt', () => {
+  it('sends the same text by either channel', async () => {
+    const viaSection = await mount(undefined, 'section').turn('session-cmp-section')
+    const sectionText = viaSection.find(section => section.name === S_LEDGER)?.text
+    const snapshots = mount(undefined, 'snapshot')
+    const sections = await snapshots.turn('session-cmp-snapshot')
+    // The text the model reads must not depend on which channel carried it.
+    expect(snapshots.notices.at(-1)?.content[0]?.text).toBe(sectionText)
+    expect(sections.find(section => section.name === S_LEDGER)).toBeUndefined()
+  })
+
+  it('queues the body as a durable snapshot of our own', async () => {
+    const mounted = mount(undefined, 'snapshot')
+    await mounted.turn('session-snapshot')
+    const queued = mounted.notices.at(-1)
+    expect(queued?.source).toMatchObject({ kind: 'plugin', plugin: INJECTION_PLUGIN, form: 'snapshot' })
+    expect(queued?.source.sections?.[0]?.name).toBe(S_LEDGER)
+  })
+
+  it('does not re-queue a body that is still in flight', async () => {
+    // Turn 2 assembles while turn 1's copy has been claimed but not yet
+    // committed, so the surface cannot show it. Queuing again here is exactly
+    // how a change used to cost two copies of the body instead of one.
+    const mounted = mount(undefined, 'snapshot')
+    await mounted.turn('session-stable-snapshot')
+    const afterFirst = mounted.notices.length
+    // The next turn is where the loop claims what the first one queued.
+    await mounted.turn('session-stable-snapshot')
+    expect(mounted.surface).toHaveLength(1)
+    expect(mounted.notices.length).toBe(afterFirst)
+  })
+
+  it('re-adds the body after compaction drops it', async () => {
+    const mounted = mount(undefined, 'snapshot')
+    await mounted.turn('session-compacted')
+    // Claimed on the next turn, then dropped by compaction.
+    await mounted.turn('session-compacted')
+    mounted.compact()
+    await mounted.turn('session-compacted')
+    // Nothing changed on disk, so the only reason to send it again is that the
+    // retained copy is gone.
+    expect(mounted.notices).toHaveLength(2)
+  })
+
+  it('queues a fresh snapshot when the note changes', async () => {
+    const mounted = mount(undefined, 'snapshot')
+    await mounted.turn('session-changed-snapshot')
+    writeFileSync(ledger, ledgerText('BODY-SNAPSHOT-TWO'), 'utf8')
+    await mounted.turn('session-changed-snapshot')
+    // One change notice plus the new body.
+    expect(mounted.notices.some(message => message.source.form === 'notice')).toBe(true)
+    expect(mounted.notices.some(message => message.content[0]?.text.includes('BODY-SNAPSHOT-TWO'))).toBe(true)
+  })
+
+  it('primes the inbox at session start, before the first step claims it', async () => {
+    // The loop claims the inbox before assembling, so a body first queued while
+    // assembling would only reach the model one step late — and the first step
+    // of a session is exactly where it has to be.
+    const mounted = mount(undefined, 'snapshot')
+    await mounted.start('session-primed')
+    expect(mounted.notices).toHaveLength(1)
+    expect(mounted.notices[0]?.source.form).toBe('snapshot')
+  })
+})
+
+describe('a session switched off injects nothing', () => {
+  it('sends neither a section nor a snapshot', async () => {
+    // The switch is stored, not inferred: the note is right there under the
+    // session's cwd, so discovery would bind it on the next assembly unless the
+    // opt-out is checked first.
+    writeFileSync(registryPath, `${JSON.stringify({ sessions: {}, off: ['session-off'], known: [] }, null, 2)}\n`, 'utf8')
+    const viaSection = mount(undefined, 'section')
+    const sectionTurn = await viaSection.turn('session-off')
+    expect(sectionTurn.some(section => section.name === S_LEDGER)).toBe(false)
+    expect(viaSection.notices).toHaveLength(0)
+
+    const viaSnapshot = mount(undefined, 'snapshot')
+    await viaSnapshot.turn('session-off')
+    expect(viaSnapshot.notices).toHaveLength(0)
+    await viaSnapshot.start('session-off')
+    expect(viaSnapshot.notices).toHaveLength(0)
+  })
+
+  it('resumes when the opt-out is cleared', async () => {
+    writeFileSync(registryPath, `${JSON.stringify({ sessions: {}, off: ['session-back'], known: [] }, null, 2)}\n`, 'utf8')
+    const mounted = mount(undefined, 'section')
+    await mounted.turn('session-back')
+    expect(mounted.notices).toHaveLength(0)
+    writeFileSync(registryPath, `${JSON.stringify({ sessions: {}, off: [], known: [] }, null, 2)}\n`, 'utf8')
+    const resumed = await mounted.turn('session-back')
+    expect(resumed.some(section => section.name === S_LEDGER)).toBe(true)
   })
 })

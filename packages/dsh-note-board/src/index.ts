@@ -23,6 +23,7 @@ import Schema from '@deepseek-ai/schemastery'
 import { DEFAULT_AUDIT_INBOX, DEFAULT_LEDGER_FILES, auditInboxFor, resolveLedger, type LedgerDeps } from './host/ledgers.ts'
 import { registerLedgerInjection } from './host/inject.ts'
 import { MAX_READ_CHARS, readBoundedFile } from './host/read.ts'
+import { registerBoardCommand } from './host/command.ts'
 import { registerBoardRoutes } from './host/routes.ts'
 import type { LedgerRef } from './shared.ts'
 
@@ -92,6 +93,27 @@ export interface Config {
    * {@link DEFAULT_AUDIT_INBOX}.
    */
   auditInboxName: string
+  /**
+   * Where the injected sections land in the assembled system prompt.
+   *
+   * `'last'` (default) keeps the operating contract ahead of imported data;
+   * `'first'` establishes the frozen definitions before anything else. The
+   * sections carry no rank, so this is presentation order only.
+   */
+  placement: 'first' | 'last'
+  /**
+   * How the ledger body reaches the model.
+   *
+   * `'section'` (default) renders it into the system prompt, which the agent
+   * loop replaces in place whenever the rendered text changes — so an edit to
+   * the note rewrites the head of the conversation.
+   *
+   * `'snapshot'` delivers it as a durable user-role snapshot instead, appended
+   * after the retained history: an edit then costs the snapshot rather than the
+   * conversation behind it, and a copy dropped by compaction is re-added on the
+   * next assembly. The delivered text is identical either way.
+   */
+  delivery: 'section' | 'snapshot'
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -113,6 +135,11 @@ export const Config: Schema<Config> = Schema.object({
   // truth in `host/ledgers.ts` instead of being spelled out twice.
   ledgerFiles: Schema.array(Schema.string()).default([]),
   auditInboxName: Schema.string().default(''),
+  // Default `last`: the contract frames the data. See host/inject.ts.
+  placement: Schema.union(['first', 'last']).default('last'),
+  // Default `section` keeps the long-standing every-turn guarantee; `snapshot`
+  // is opt-in until a deployment has measured it. See host/inject.ts.
+  delivery: Schema.union(['section', 'snapshot']).default('section'),
 })
 
 /** One ledger, as handed to a companion writer. */
@@ -212,6 +239,8 @@ export function apply(ctx: Context, config: Config): void {
     cacheTtlMs: config.catalogTtlMs,
     ledgerFiles: config.ledgerFiles.length > 0 ? config.ledgerFiles : DEFAULT_LEDGER_FILES,
     auditInboxName: config.auditInboxName !== '' ? config.auditInboxName : DEFAULT_AUDIT_INBOX,
+    placement: config.placement,
+    delivery: config.delivery,
     // One bound for both the route's payload and the per-turn injection read:
     // the turn path must never pull in more of a note than the view shows.
     readBudget: config.maxBytes,
@@ -225,6 +254,15 @@ export function apply(ctx: Context, config: Config): void {
   // Injection lives here, beside resolution, so that "the board displays what
   // gets injected" is true by construction rather than by two modules agreeing.
   ctx.effect(() => registerLedgerInjection(ctx, deps), '@suxeca/dsh-note-board: ledger injection')
+  // The switch has two entry points on purpose: the board's binding bar (where
+  // the binding is visible) and `/note-board` (the only one reachable from a
+  // composer that has no session yet). Registered through a scoped
+  // late-injection callback rather than read once at apply: the command service
+  // may mount after this plugin, and a one-shot lookup would silently leave the
+  // deployment with no command at all.
+  ctx.inject(['commands'], (scope) => {
+    scope.effect(() => registerBoardCommand(scope, deps), '@suxeca/dsh-note-board: /note-board command')
+  })
 
   const service: NoteLedgersService = {
     resolve: (sessionId, cwd) => resolveLedger(
