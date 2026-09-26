@@ -1,6 +1,6 @@
 {
   "name": "@suxeca/dsh-note-board",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "对话视图「笔记看板」：把一个按会话绑定的 Markdown 笔记与其对抗审计判决作为 对话|轨迹 之后的第三个标签页，KaTeX 渲染、每轮注入、跟随 DSH 皮肤",
   "private": true,
   "type": "module",
