@@ -115,6 +115,7 @@ const config: Config = {
   maxBytes: 262144,
   auditLimit: 20,
   injectBudget: 6000,
+  pinnedSections: ['FROZEN*', 'RULES', 'VERDICT*'],
   scanRoots: [base],
   scanDepth: 3,
   catalogTtlMs: 30000,

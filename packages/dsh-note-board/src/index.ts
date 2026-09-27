@@ -30,6 +30,18 @@ import type { LedgerRef } from './shared.ts'
 export const name = '@suxeca/dsh-note-board'
 
 /**
+ * Sections the injected body always carries whole.
+ *
+ * These are the ones whose absence changes what the model is allowed to
+ * conclude — frozen definitions, the bookkeeping discipline, adjudications —
+ * rather than the running state a note also tends to accumulate. Everything
+ * else is named in the body and readable on demand, which is what keeps the
+ * injected text stable while a log grows underneath it. A stable body is also
+ * what stops a growing note from re-injecting itself every turn.
+ */
+export const DEFAULT_PINNED_SECTIONS = ['FROZEN*', 'RULES', 'VERDICT*']
+
+/**
  * `webServer` is what the route module reads through a Cordis accessor, so it
  * must be declared here — an accessor only resolves on a context that declared
  * it. `systemPrompt` is declared because this plugin now owns ledger injection
@@ -89,6 +101,13 @@ export interface Config {
    */
   ledgerFiles: string[]
   /**
+   * Section ids the injected body always carries whole, as exact ids or
+   * `PREFIX*` patterns (case-insensitive). Empty means
+   * {@link DEFAULT_PINNED_SECTIONS}; `['*']` pins everything, restoring the
+   * pre-pinning behaviour where the body was the whole note, clamped.
+   */
+  pinnedSections: string[]
+  /**
    * Name of the audit-inbox directory, created beside a note. Empty means
    * {@link DEFAULT_AUDIT_INBOX}.
    */
@@ -134,6 +153,7 @@ export const Config: Schema<Config> = Schema.object({
   // Empty rather than the literal list, so the defaults stay a single source of
   // truth in `host/ledgers.ts` instead of being spelled out twice.
   ledgerFiles: Schema.array(Schema.string()).default([]),
+  pinnedSections: Schema.array(Schema.string()).default([...DEFAULT_PINNED_SECTIONS]),
   auditInboxName: Schema.string().default(''),
   // Default `last`: the contract frames the data. See host/inject.ts.
   placement: Schema.union(['first', 'last']).default('last'),
@@ -238,6 +258,7 @@ export function apply(ctx: Context, config: Config): void {
     maxDepth: config.scanDepth,
     cacheTtlMs: config.catalogTtlMs,
     ledgerFiles: config.ledgerFiles.length > 0 ? config.ledgerFiles : DEFAULT_LEDGER_FILES,
+    pinnedSections: config.pinnedSections,
     auditInboxName: config.auditInboxName !== '' ? config.auditInboxName : DEFAULT_AUDIT_INBOX,
     placement: config.placement,
     delivery: config.delivery,

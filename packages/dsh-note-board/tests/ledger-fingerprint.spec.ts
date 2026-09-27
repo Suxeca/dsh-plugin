@@ -139,6 +139,7 @@ function mount(placement?: 'first' | 'last', delivery?: 'section' | 'snapshot'):
     cwdOf: () => project,
     registryPath,
     injectBudget: 6000,
+    pinnedSections: ['FROZEN*', 'RULES', 'VERDICT*'],
     // The injection read is bounded like every other read; the fixtures are tiny.
     readBudget: 262144,
     placement,
@@ -486,5 +487,96 @@ describe('a session switched off injects nothing', () => {
     writeFileSync(registryPath, `${JSON.stringify({ sessions: {}, off: [], known: [] }, null, 2)}\n`, 'utf8')
     const resumed = await mounted.turn('session-back')
     expect(resumed.some(section => section.name === S_LEDGER)).toBe(true)
+  })
+})
+
+/**
+ * What the injected body *contains* is a decision, not an accident.
+ *
+ * The body used to be the note clamped by `slice`, which meant a growing log
+ * section pushed the adjudications out of the prompt while the log stayed in it.
+ * These tests pin the replacement: selection by section, omissions named, and —
+ * because the snapshot channel re-delivers exactly when the body text changes —
+ * a body that stays stable while a log grows underneath it.
+ */
+describe('the injected body is selected by section, not by prefix length', () => {
+  /** A note with one pinned section, one volatile section, one adjudication. */
+  const withTask = (frozen: string, task: string): string => [
+    '# Test note',
+    '',
+    '## FROZEN-1 · 定义',
+    '',
+    frozen,
+    '',
+    '## TASK-1 · 当前任务',
+    '',
+    task,
+    '',
+    '## VERDICT-1 · 非负性',
+    '',
+    'V1 成立。',
+    '',
+  ].join('\n')
+
+  /** The ledger text one turn contributed. */
+  const bodyOf = async (process: ReturnType<typeof mount>, id: string): Promise<string> => {
+    const sections = await process.turn(id)
+    return sections.find(section => section.name === S_LEDGER)?.text ?? ''
+  }
+
+  it('carries the pinned sections whole and names the ones it left out', async () => {
+    writeFileSync(ledger, withTask('BODY-ONE', 'LOG-ONE'), 'utf8')
+    const body = await bodyOf(mount('last', 'section'), 'session-selection')
+    expect(body).toContain('BODY-ONE')
+    expect(body).toContain('V1 成立。')
+    // Not injected, but named: an omission a reader can see is a pointer to read
+    // the file, while a silent one is indistinguishable from "nothing else".
+    expect(body).not.toContain('LOG-ONE')
+    expect(body).toContain('TASK-1')
+    expect(body).toContain('未列出不等于已被删除')
+    // And the authority claim is scoped to what the message actually carries.
+    expect(body).toContain('本消息列出的条目即最新版本')
+    expect(body).not.toContain('本节即最新版本')
+  })
+
+  it('does not re-send the body when only an elided section grew', async () => {
+    writeFileSync(ledger, withTask('BODY-ONE', 'LOG-ONE'), 'utf8')
+    const process = mount('last', 'snapshot')
+    await process.turn('session-stable')
+    expect(process.notices.filter(message => message.source.form === 'snapshot')).toHaveLength(1)
+
+    writeFileSync(ledger, withTask('BODY-ONE', 'LOG-ONE plus a whole new stage of conclusions'), 'utf8')
+    await process.turn('session-stable')
+    // The body is unchanged, so the snapshot channel delivers nothing — this is
+    // what stops a note that grows every stage from costing a fresh body each
+    // stage, and it is also what stops those bodies from competing with the
+    // human's question for "the newest user message".
+    expect(process.notices.filter(message => message.source.form === 'snapshot')).toHaveLength(1)
+
+    // The new content still reaches the model: the change notice carries it,
+    // because for an elided section the notice *is* the delivery.
+    const notice = process.notices.filter(message => message.source.form === 'notice').at(-1)
+    const text = notice?.content.map(part => part.text).join('\n') ?? ''
+    expect(text).toContain('TASK-1')
+    expect(text).toContain('a whole new stage of conclusions')
+  })
+
+  it('keeps a pinned section whole even when it alone exceeds the budget', async () => {
+    const huge = 'X'.repeat(7000)
+    writeFileSync(ledger, withTask(huge, 'LOG-ONE'), 'utf8')
+    const body = await bodyOf(mount('last', 'section'), 'session-overbudget')
+    expect(body).toContain(huge)
+    expect(body).toContain('已超出注入预算')
+  })
+
+  it('re-sends the body, and only then, when a pinned section changes', async () => {
+    writeFileSync(ledger, withTask('BODY-ONE', 'LOG-ONE'), 'utf8')
+    const process = mount('last', 'snapshot')
+    await process.turn('session-pinned')
+    writeFileSync(ledger, withTask('BODY-TWO', 'LOG-ONE'), 'utf8')
+    await process.turn('session-pinned')
+    const snapshots = process.notices.filter(message => message.source.form === 'snapshot')
+    expect(snapshots).toHaveLength(2)
+    expect(snapshots[1]?.content.map(part => part.text).join('\n')).toContain('BODY-TWO')
   })
 })

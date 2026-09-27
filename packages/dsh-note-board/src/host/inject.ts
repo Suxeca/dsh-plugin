@@ -67,6 +67,16 @@ export const INJECTION_PLUGIN = 'note-ledger'
 const DELTA_SUMMARY_MAX = 120
 
 /**
+ * Total characters of changed section text a change notice may carry.
+ *
+ * The notice is not decoration: it is the only place a non-pinned section's new
+ * content reaches the model, because the injected body holds the pinned sections
+ * only (see `ledgerBody`). Naming a section without its new text would leave the
+ * model holding the old one — an announcement it cannot act on.
+ */
+const DELTA_BODY_MAX = 1200
+
+/**
  * Section id → normalised body.
  *
  * `MUTATION-LOG` is excluded on purpose: every single edit appends a line to it,
@@ -77,6 +87,20 @@ const MUTATION_LOG_ID = 'MUTATION-LOG'
 
 /** Injection inputs. */
 export interface InjectDeps extends LedgerDeps {
+  /**
+   * Section ids the injected body must always carry whole, as exact ids or
+   * `PREFIX*` patterns.
+   *
+   * This is the fix for a note that outgrew the budget: the old body clamped by
+   * slicing, so growing a *log* section pushed the adjudications out of the
+   * prompt while the log stayed in it — the selection inverted exactly where it
+   * mattered. Pinning decides inclusion by what a section *is*, and the sections
+   * left out are named in the body instead of being silently dropped.
+   *
+   * `['*']` restores the pre-pinning behaviour: everything is pinned and the
+   * body is clamped only when it has no `## <ID>` headings to split on.
+   */
+  pinnedSections: readonly string[]
   /** Character cap on the injected body. */
   injectBudget: number
   /**
@@ -133,7 +157,70 @@ function snapshotTextOf(message: unknown): string | null {
   return record.content.map(part => (part.type === 'text' && typeof part.text === 'string' ? part.text : '')).join('')
 }
 
-/** Split `## <ID> ...` sections out of ledger text, hashing each body. *//** Split `## <ID> ...` sections out of ledger text, hashing each body. */
+/** One `## <ID>` section, kept whole. */
+interface LedgerSection {
+  /** The id token following `##`, exactly as `fingerprint` reads it. */
+  readonly id: string
+  /** Heading line and body, verbatim. */
+  readonly text: string
+}
+
+/**
+ * Split a note into its preamble and its whole sections.
+ *
+ * Whole sections are the unit of selection because half a section is worse than
+ * none: contract terms are read as a set, so a truncated one reads as a complete
+ * but *different* statement.
+ * @param text - full note text.
+ * @returns the text before the first heading, and every `## <ID>` section.
+ */
+function sectionsOf(text: string): { preamble: string, sections: LedgerSection[] } {
+  const preamble: string[] = []
+  const sections: LedgerSection[] = []
+  let id: string | null = null
+  let current: string[] | null = null
+  const flush = (): void => {
+    if (id === null || current === null) return
+    sections.push({ id, text: current.join('\n').trimEnd() })
+    id = null
+    current = null
+  }
+  for (const line of text.split('\n')) {
+    const match = /^##\s+(\S+)/.exec(line)
+    if (match !== null) {
+      flush()
+      id = match[1]
+      // The heading is kept verbatim: whatever follows the id is documentation
+      // the model should still read.
+      current = [line]
+      continue
+    }
+    if (current === null) preamble.push(line)
+    else current.push(line)
+  }
+  flush()
+  return { preamble: preamble.join('\n').trim(), sections }
+}
+
+/**
+ * Whether one section id is pinned.
+ * @param id - section id as read from its heading.
+ * @param patterns - exact ids, or `PREFIX*` patterns; case-insensitive.
+ * @returns whether any pattern matches.
+ */
+function isPinned(id: string, patterns: readonly string[]): boolean {
+  const upper = id.trim().toUpperCase()
+  for (const pattern of patterns) {
+    const value = pattern.trim().toUpperCase()
+    if (value === '') continue
+    if (value.endsWith('*')) {
+      if (upper.startsWith(value.slice(0, -1))) return true
+    } else if (upper === value) return true
+  }
+  return false
+}
+
+/** Split `## <ID> ...` sections out of ledger text, hashing each body. */
 function fingerprint(text: string): Map<string, string> {
   const map = new Map<string, string>()
   let id: string | null = null
@@ -335,7 +422,7 @@ export function registerLedgerInjection(ctx: Context, deps: InjectDeps): () => v
       void (async () => {
         const loaded = await loadLedger(agent)
         if (loaded === null) return
-        const text = ledgerBody(loaded.ref, loaded.text, deps.injectBudget)
+        const text = ledgerBody(loaded.ref, loaded.text, deps.injectBudget, deps.pinnedSections)
         if (text !== null) ensureSnapshot(agent, text)
       })().catch((error: unknown) => {
         console.error(
@@ -363,9 +450,33 @@ export function registerLedgerInjection(ctx: Context, deps: InjectDeps): () => v
    * authoritative, and a notice that could not be queued costs one missing
    * announcement, not a lost request.
    */
-  const notifyChange = (agent: Agent | undefined, lines: readonly string[]): void => {
+  const notifyChange = (
+    agent: Agent | undefined,
+    lines: readonly string[],
+    changedSections: readonly LedgerSection[],
+  ): void => {
     if (agent === undefined) return
     const account = lines.map(line => line.replace(/^[-\s]+/, '')).join('；')
+    // The injected body carries only pinned sections, so for everything else this
+    // notice *is* the delivery: naming a section without its new text would leave
+    // the model holding the old one and no way to notice.
+    const carried: string[] = []
+    let carriedChars = 0
+    if (changedSections.length > 0) {
+      carried.push('', '以下节未随注入正文提供，这里附上它们的当前内容：')
+      for (const section of changedSections) {
+        const room = DELTA_BODY_MAX - carriedChars
+        if (room <= 0) {
+          carried.push(`- ${section.id}（超过通知上限，请读取文件）`)
+          continue
+        }
+        const slice = section.text.length > room
+          ? `${section.text.slice(0, room)}\n…（本节被截断，其余请读取文件）`
+          : section.text
+        carried.push('', slice)
+        carriedChars += slice.length
+      }
+    }
     try {
       agent.inject(createUserMessage({
         content: [{
@@ -373,8 +484,13 @@ export function registerLedgerInjection(ctx: Context, deps: InjectDeps): () => v
           text: [
             '[LEDGER DELTA] 笔记在你上次读到它之后发生了变化——可能来自另一个会话，也可能来自你自己本轮的写入。',
             ...lines,
+            ...carried,
             '',
-            '系统提示里的 [FROZEN LEDGER] 正文是**最新版本，以它为准**。',
+            // The channel differs per deployment, and saying "system prompt" while
+            // the body travels as a user-role snapshot is simply false.
+            deps.delivery === 'snapshot'
+              ? '本轮注入的 [FROZEN LEDGER] 快照是**最新版本，以它为准**。'
+              : '系统提示里的 [FROZEN LEDGER] 正文是**最新版本，以它为准**。',
             '你上下文里这些条目的旧副本**已经作废**：不要引用它、不要沿用它的写法或约定；',
             '若你前面的结论依赖旧版本，先按新版本把那一步重做，而不是在旧结论上继续叠加。',
           ].join('\n'),
@@ -432,10 +548,15 @@ export function registerLedgerInjection(ctx: Context, deps: InjectDeps): () => v
       if (change.added.length > 0) lines.push(`- 新增：${change.added.join('、')}`)
       if (change.changed.length > 0) lines.push(`- 被替换：${change.changed.join('、')}`)
       if (change.removed.length > 0) lines.push(`- 被删除：${change.removed.join('、')}`)
-      notifyChange(agent, lines)
+      const changedIds = [...change.added, ...change.changed]
+      notifyChange(
+        agent,
+        lines,
+        sectionsOf(text).sections.filter(section => changedIds.includes(section.id)),
+      )
     }
 
-    const ledgerText = ledgerBody(ref, text, deps.injectBudget)
+    const ledgerText = ledgerBody(ref, text, deps.injectBudget, deps.pinnedSections)
     if (ledgerText !== null) {
       // Two deliveries, one text. See `InjectDeps.delivery` for the trade-off.
       if (deps.delivery === 'snapshot') ensureSnapshot(agent, ledgerText)
@@ -520,9 +641,14 @@ export function injectionOffNotice(): UserMessage {
  * @param budget - character cap on the body.
  * @returns the assembled text, or null when the note has no visible text.
  */
-function ledgerBody(ref: LedgerRef, text: string, budget: number): string | null {
+function ledgerBody(ref: LedgerRef, text: string, budget: number, pinned: readonly string[]): string | null {
   if (text.trim() === '') return null
-  const body = text.length > budget
+  const { preamble, sections } = sectionsOf(text)
+  const kept = sections.filter(section => isPinned(section.id, pinned))
+  const elided = sections.filter(section => !isPinned(section.id, pinned))
+  const pinnedChars = kept.reduce((total, section) => total + section.text.length, 0)
+  // A note with no headings cannot be split, so it stays a single clamped body.
+  const body = sections.length === 0 && text.length > budget
     ? `${text.slice(0, budget)}\n\n[... 笔记已截断；需要后续条目时请另行读取该文件 ...]`
     : text
   const head = [
@@ -531,7 +657,10 @@ function ledgerBody(ref: LedgerRef, text: string, budget: number): string | null
     // The change notice is claimed at a *later* step boundary than the body, so
     // the authority claim has to live in the body itself, which is present for
     // the step in between.
-    '本节即最新版本：若你上下文里的副本与本节不一致，**以本节为准**。',
+    // Scoped to *this message*, not to "the note": the body may hold only the
+    // pinned sections, and a claim about the whole note would read as if the
+    // omitted ones had been seen (or had never existed).
+    '本消息列出的条目即最新版本：若你上下文里的副本与它们不一致，**以本消息为准**。',
     // Presence is not use, and citation is not transcription. Measured twice:
     // with the definitions merely present, a model asked to "first understand
     // this topic" read the repository's own derivation notes and never cited an
@@ -548,5 +677,32 @@ function ledgerBody(ref: LedgerRef, text: string, budget: number): string | null
   // own act and needs no reminder; an automatic binding must say which project
   // it came from, or the binding is invisible again.
   if (ref.source === 'discovered') head.push(`（本会话的笔记按其工作目录自动发现：${ref.path}）`)
-  return [...head, '', body.trim()].join('\n')
+  const parts = [...head, '']
+  if (preamble !== '') parts.push(preamble, '')
+  parts.push(body.trim())
+  if (sections.length > 0) {
+    parts.length = 0
+    parts.push(...head, '')
+    if (preamble !== '') parts.push(preamble, '')
+    parts.push(kept.map(section => section.text).join('\n\n'))
+    if (elided.length > 0) {
+      // Named, not hidden: an omission a reader can see is a pointer to read the
+      // file, while a silent one is indistinguishable from "there was nothing
+      // else". Ids only, so that growth inside an elided section does not change
+      // this text and therefore does not force a re-injection.
+      parts.push(
+        '',
+        '[未注入的节] 下列节存在，但未随本消息提供——**未列出不等于已被删除**，也不能据其名推断其内容：',
+        `- ${elided.map(section => section.id).join('、')}`,
+        `需要时请读取：${ref.path}`,
+      )
+    }
+    if (pinnedChars > budget) {
+      parts.push(
+        '',
+        `[!] 固定节合计 ${pinnedChars} 字，已超出注入预算 ${budget}：为不丢定义仍完整注入，省略的节如上。`,
+      )
+    }
+  }
+  return parts.join('\n').trim()
 }
