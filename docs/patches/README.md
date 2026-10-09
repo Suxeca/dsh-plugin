@@ -9,7 +9,7 @@
 | Patch | 适用仓库 | 基线 | 包含改动 |
 |---|---|---|---|
 | `better-sidebar-local.patch` | `third-party/dsh-better-sidebar`（[omdsh-dev/DSH-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)） | `1e366d9` | 面板控制服务（`panelControl`：`togglePanel`/`toggleBottomPanel`/`setFullscreen`/`toggleFullscreen`/`toggleBottomTerminal`）；右侧栏/底栏全屏；终端可见时自动聚焦；explorer 外部目录根 |
-| `dsh-super-injector-local.patch` | `third-party/dsh-super-injector`（yjh051108/dsh-super-injector） | `31a556a` | 版本 0.3.1→0.3.3：`DSH_HOME` 优先（web 进程 homedir 与 DSH_HOME 不一致时日志路径错位）；`Config` 类型显式标注（junction 依赖下 declaration 编译 TS2742）；tsdown/构建修复；CHANGELOG/INSTALL 同步 |
+| `dsh-super-injector-local.patch` | `third-party/dsh-super-injector`（yjh051108/dsh-super-injector） | `31a556a` | 版本 0.3.1→0.3.3：`DSH_HOME` 优先（web 进程 homedir 与 DSH_HOME 不一致时日志路径错位）；`Config` 类型显式标注（junction 依赖下 declaration 编译 TS2742）；tsdown/构建修复；CHANGELOG/INSTALL 同步。**2026-10-09 新增**：`/super-injector/api` 的**信任围栏**——该路由能注入/卸载/内化本地插件包（等于代码执行），而 DSH 的网页鉴权门不覆盖插件注册的路由，故改为先问 `connection.requestRejection`，缺失即 503、401/403 提前返回，与 `dsh-note-board`／`dsh-expression-mode` 同构；`scripts/build.sh` 去掉硬编码的 `/home/suxeca/…` 候选 |
 
 ## 在其他机器应用
 

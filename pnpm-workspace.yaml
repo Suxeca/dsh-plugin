@@ -2,11 +2,17 @@ packages:
   - 'packages/*'
   # dsh-quota-meter 未收录进公开仓库（源码内含 Antigravity 公开凭据，见 .gitignore），
   # 因此不得作为 workspace 成员出现在 lockfile 里，否则新克隆的 --frozen-lockfile 会失败。
-  # 本机仍可单独安装：cd packages/dsh-quota-meter && pnpm install
   - '!packages/dsh-quota-meter'
   # dsh-secure-context-polyfill 同样是本机私人包（.gitignore 第 16 行），
   # 未收录进公开仓库，因此也不能出现在 lockfile 的 importer 列表里。
   - '!packages/dsh-secure-context-polyfill'
+  #
+  # 代价：在根目录跑 `pnpm install` 会剪掉这两个包专用的 store 条目，它们的
+  # node_modules/@deepseek-ai/* 变成悬空链接，构建报 TS2307。本机要重建时用：
+  #     scripts/relink-private-packages.sh --build
+  # 它临时去掉上面两行排除、安装、再原样还原本文件与 `pnpm-lock.yaml`。
+  # 不要改用 `cd packages/<pkg> && pnpm install` —— 独立安装无法解析
+  # @deepseek-ai/* 的预发布版本（实测 ERR_PNPM_NO_MATCHING_VERSION）。
 
 # pnpm store lives inside the workspace: the DSH file sandbox (workspace-write
 # mode) only grants writes under the session workspace, and the default global

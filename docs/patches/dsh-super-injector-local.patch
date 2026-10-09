@@ -62,7 +62,7 @@ index 92d56e8..ce9ff02 100644
  - 手动 patch 前先确认没有装过注入器；装过就用 `dev_fix_patch --check` 验证。
  
 diff --git a/package.json b/package.json
-index ed566f1..81928df 100644
+index ed566f1..0dd685f 100644
 --- a/package.json
 +++ b/package.json
 @@ -1,6 +1,6 @@
@@ -73,6 +73,21 @@ index ed566f1..81928df 100644
    "description": "超级模组注入器：运行时注入任意本地 DSH 插件包（junction 链接 + loader.create，不碰 patch/package.json/不重启），热重载全家桶 + 开发侧挂区一键转正 + 一键卸载 + 路由自愈 + 插件管理 UI（设置页：列表/卸载/拖入内化），清单持久化重启自动恢复——DSH 生态的 BepInEx 式模组注入入口",
    "private": true,
    "type": "module",
+@@ -30,13 +30,13 @@
+     },
+     "client": {
+       "inject": [
+-        "@deepseek-ai/dsh-client-runtime",
+         "@deepseek-ai/dsh-client-ui-slots"
+       ],
+       "platform": "web"
+     }
+   },
+   "peerDependencies": {
++    "@deepseek-ai/dsh-client-ui-slots": "^0.1.5-rc.1 || ^0.2.0-rc.1",
+     "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2",
+     "cordis": ">=4.0.0-rc <5",
+     "schemastery": "^3.18.0"
 @@ -44,7 +44,7 @@
    "devDependencies": {
      "@types/node": "^24.13.3",
@@ -83,10 +98,29 @@ index ed566f1..81928df 100644
    "scripts": {
      "build": "bash scripts/build.sh",
 diff --git a/scripts/build.sh b/scripts/build.sh
-index b78004f..eec773d 100644
+index b78004f..a7a502d 100644
 --- a/scripts/build.sh
 +++ b/scripts/build.sh
-@@ -44,6 +44,8 @@ link_pkg schemastery vendor/schemastery
+@@ -7,6 +7,18 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ cd "$ROOT"
+ 
+ CHECKOUT="${DSH_CHECKOUT:-}"
++if [ -z "$CHECKOUT" ] || [ ! -d "$CHECKOUT/packages" ]; then
++  for candidate in \
++    "$HOME/Workspace/deepseek-harness" \
++    "$(cd "$ROOT/../../deepseek-harness" 2>/dev/null && pwd || true)" \
++    "$(cd "$ROOT/../../../deepseek-harness" 2>/dev/null && pwd || true)"; do
++    if [ -n "$candidate" ] && [ -d "$candidate/packages" ]; then
++      CHECKOUT="$candidate"
++      break
++    fi
++  done
++fi
++
+ if [ -z "$CHECKOUT" ] || [ ! -d "$CHECKOUT/packages" ]; then
+   echo "build: cannot locate the dsh checkout (set DSH_CHECKOUT)" >&2
+   exit 1
+@@ -44,6 +56,8 @@ link_pkg schemastery vendor/schemastery
  link_pkg @deepseek-ai/dsh-tools packages/core/tools
  link_pkg @deepseek-ai/dsh-system-prompt packages/core/system-prompt
  link_pkg @deepseek-ai/cordis-plugin-loader vendor/loader
@@ -95,11 +129,273 @@ index b78004f..eec773d 100644
  
  STD_SCHEMA=$(find "$CHECKOUT/node_modules/.pnpm" -maxdepth 1 -type d -iname '@standard-schema+spec@*' 2>/dev/null | head -1)
  if [ -n "$STD_SCHEMA" ]; then
+diff --git a/src/client/index.ts b/src/client/index.ts
+index c5c12b5..052ce57 100644
+--- a/src/client/index.ts
++++ b/src/client/index.ts
+@@ -4,7 +4,11 @@
+  *   - 直接注入：目录已是插件包（package.json + lib/）→ 立即注入
+  *   - 内化：任意文件夹 → 新建 agent 会话 → AI 把内容变成插件
+  * 通信：同源 fetch → host webServer API（/super-injector/api）
++ *
++ * 2026-08-19 兼容性修复（H1）：注册改为现代双参 register(opts, Component)；
++ * 页面逻辑以纯 DOM 构建、经薄 React 组件挂载（渲染端只认 React FC）。
+  */
++import { createElement, useEffect, useRef } from 'react'
+ import type { SlotsService } from '@deepseek-ai/dsh-client-ui-slots'
+ 
+ type ClientContext = {
+@@ -51,116 +55,128 @@ function fetchJson(path: string, init?: RequestInit): Promise<any> {
+   }).then((r) => r.json())
+ }
+ 
+-export function apply(ctx: ClientContext): void {
+-  ctx.effect(() => ctx.slots.inject('settings.section', () =>
+-    ctx.slots.register({
+-      name: 'settings.section',
+-      id: 'super-injector-plugins',
+-      order: 50,
+-      label: () => '插件',
+-      component: () => ({
+-        render() {
+-          const style = document.createElement('style')
+-          style.textContent = styles
+-
+-          const page = el('div', 'spi-page')
+-          const h = el('h3', undefined, '插件管理（dsh-super-injector）')
+-          const stats = el('p', 'spi-stats')
+-          page.append(style, h, stats)
+-
+-          // ── 添加区 ──
+-          const add = el('div', 'spi-add')
+-          add.textContent = '拖入文件夹，或输入路径——「内化」= 新建会话让 AI 把内容变成插件；「注入」= 目录已是插件包直接注入'
+-          const row = el('div', 'spi-row')
+-          const input = el('input', 'spi-input') as HTMLInputElement
+-          input.placeholder = 'D:/path/to/folder'
+-          const btnIngest = el('button', 'spi-btn', '内化（AI 造插件）')
+-          const btnInject = el('button', 'spi-btn ghost', '直接注入')
+-          row.append(input, btnIngest, btnInject)
+-          add.append(row)
+-          page.append(add)
+-
+-          // 拖放（浏览器拿不到绝对路径——提示用输入框/选择器）
+-          add.addEventListener('dragover', (e) => { e.preventDefault(); add.classList.add('drag') })
+-          add.addEventListener('dragleave', () => add.classList.remove('drag'))
+-          add.addEventListener('drop', (e) => {
+-            e.preventDefault()
+-            add.classList.remove('drag')
+-            input.placeholder = '浏览器无法读取拖入文件夹的绝对路径——请粘贴路径或使用选择器'
++/** 在宿主容器内构建管理页 DOM，返回 dispose。 */
++function mountPage(host: HTMLElement): () => void {
++  host.textContent = ''
++  const style = document.createElement('style')
++  style.textContent = styles
++
++  const page = el('div', 'spi-page')
++  const h = el('h3', undefined, '插件管理（dsh-super-injector）')
++  const stats = el('p', 'spi-stats')
++  page.append(style, h, stats)
++
++  // ── 添加区 ──
++  const add = el('div', 'spi-add')
++  add.textContent = '拖入文件夹，或输入路径——「内化」= 新建会话让 AI 把内容变成插件；「注入」= 目录已是插件包直接注入'
++  const row = el('div', 'spi-row')
++  const input = el('input', 'spi-input') as HTMLInputElement
++  input.placeholder = 'D:/path/to/folder'
++  const btnIngest = el('button', 'spi-btn', '内化（AI 造插件）')
++  const btnInject = el('button', 'spi-btn ghost', '直接注入')
++  row.append(input, btnIngest, btnInject)
++  add.append(row)
++  page.append(add)
++
++  // 拖放（浏览器拿不到绝对路径——提示用输入框/选择器）
++  add.addEventListener('dragover', (e) => { e.preventDefault(); add.classList.add('drag') })
++  add.addEventListener('dragleave', () => add.classList.remove('drag'))
++  add.addEventListener('drop', (e) => {
++    e.preventDefault()
++    add.classList.remove('drag')
++    input.placeholder = '浏览器无法读取拖入文件夹的绝对路径——请粘贴路径或使用选择器'
++  })
++
++  // ── 列表 ──
++  const list = el('ul', 'spi-list')
++  page.append(list)
++
++  const msg = el('div', 'spi-msg')
++  msg.style.display = 'none'
++  page.append(msg)
++
++  const say = (text: string, isErr = false): void => {
++    msg.textContent = text
++    msg.style.display = text ? 'block' : 'none'
++    msg.style.borderColor = isErr ? '#d33' : 'var(--theme-border,#333)'
++  }
++
++  const refresh = (): void => {
++    fetchJson('/list')
++      .then((d) => {
++        if (!d?.ok) return say(JSON.stringify(d), true)
++        const { entries, stats: s } = d
++        stats.textContent = `inject ${s?.inject?.ok ?? 0}✓/${s?.inject?.fail ?? 0}✗ · reload ${s?.reload?.ok ?? 0}✓ · uninject ${s?.uninject?.ok ?? 0}✓/${s?.uninject?.fail ?? 0}✗ · 共 ${entries.length} 个注入插件`
++        list.textContent = ''
++        if (!entries.length) {
++          list.append(el('li', 'spi-item', '（暂无注入插件——拖入文件夹或输入路径开始）'))
++          return
++        }
++        for (const e of entries) {
++          const li = el('li', 'spi-item')
++          const name = el('span', 'name', String(e.name))
++          const dir = el('span', 'dir', String(e.dir))
++          const st = el('span', 'st ' + (e.active ? 'on' : 'off'), e.active ? '运行中' : '未激活')
++          const btn = el('button', 'spi-btn danger', '卸载')
++          btn.addEventListener('click', () => {
++            btn.disabled = true
++            btn.textContent = '卸载中…'
++            fetchJson('/uninstall', { method: 'POST', body: JSON.stringify({ match: e.name }) })
++              .then((r) => { say(r?.result ?? JSON.stringify(r), !r?.ok) })
++              .catch((err) => say('卸载请求失败: ' + err, true))
++              .finally(() => { btn.disabled = false; btn.textContent = '卸载'; setTimeout(refresh, 600) })
+           })
++          li.append(name, dir, st, btn)
++          list.append(li)
++        }
++      })
++      .catch((err) => say('加载失败: ' + err, true))
++  }
++
++  const doAction = (path: string, label: string): void => {
++    const dir = input.value.trim()
++    if (!dir) { say('请先输入文件夹路径', true); return }
++    btnIngest.disabled = btnInject.disabled = true
++    btnIngest.textContent = btnInject.textContent = '处理中…'
++    say('')
++    fetchJson(path, { method: 'POST', body: JSON.stringify({ dir, title: label }) })
++      .then((r) => { say(r?.result ?? JSON.stringify(r), !r?.ok); if (r?.ok) setTimeout(refresh, 1200) })
++      .catch((err) => say('请求失败: ' + err, true))
++      .finally(() => {
++        btnIngest.disabled = btnInject.disabled = false
++        btnIngest.textContent = '内化（AI 造插件）'
++        btnInject.textContent = '直接注入'
++      })
++  }
++  btnIngest.addEventListener('click', () => doAction('/ingest', '内化插件'))
++  btnInject.addEventListener('click', () => doAction('/inject', '直接注入'))
++
++  refresh()
++  // 60s 轮询刷新（内化会话建好后自动出现）
++  const timer = window.setInterval(refresh, 60000)
++  host.append(page)
++  return () => {
++    window.clearInterval(timer)
++    host.textContent = ''
++  }
++}
+ 
+-          // ── 列表 ──
+-          const list = el('ul', 'spi-list')
+-          page.append(list)
+-
+-          const msg = el('div', 'spi-msg')
+-          msg.style.display = 'none'
+-          page.append(msg)
+-
+-          const say = (text: string, isErr = false): void => {
+-            msg.textContent = text
+-            msg.style.display = text ? 'block' : 'none'
+-            msg.style.borderColor = isErr ? '#d33' : 'var(--theme-border,#333)'
+-          }
+-
+-          const refresh = (): void => {
+-            fetchJson('/list')
+-              .then((d) => {
+-                if (!d?.ok) return say(JSON.stringify(d), true)
+-                const { entries, stats: s } = d
+-                stats.textContent = `inject ${s?.inject?.ok ?? 0}✓/${s?.inject?.fail ?? 0}✗ · reload ${s?.reload?.ok ?? 0}✓ · uninject ${s?.uninject?.ok ?? 0}✓/${s?.uninject?.fail ?? 0}✗ · 共 ${entries.length} 个注入插件`
+-                list.textContent = ''
+-                if (!entries.length) {
+-                  list.append(el('li', 'spi-item', '（暂无注入插件——拖入文件夹或输入路径开始）'))
+-                  return
+-                }
+-                for (const e of entries) {
+-                  const li = el('li', 'spi-item')
+-                  const name = el('span', 'name', String(e.name))
+-                  const dir = el('span', 'dir', String(e.dir))
+-                  const st = el('span', 'st ' + (e.active ? 'on' : 'off'), e.active ? '运行中' : '未激活')
+-                  const btn = el('button', 'spi-btn danger', '卸载')
+-                  btn.addEventListener('click', () => {
+-                    btn.disabled = true
+-                    btn.textContent = '卸载中…'
+-                    fetchJson('/uninstall', { method: 'POST', body: JSON.stringify({ match: e.name }) })
+-                      .then((r) => { say(r?.result ?? JSON.stringify(r), !r?.ok) })
+-                      .catch((err) => say('卸载请求失败: ' + err, true))
+-                      .finally(() => { btn.disabled = false; btn.textContent = '卸载'; setTimeout(refresh, 600) })
+-                  })
+-                  li.append(name, dir, st, btn)
+-                  list.append(li)
+-                }
+-              })
+-              .catch((err) => say('加载失败: ' + err, true))
+-          }
+-
+-          const doAction = (path: string, label: string): void => {
+-            const dir = input.value.trim()
+-            if (!dir) { say('请先输入文件夹路径', true); return }
+-            btnIngest.disabled = btnInject.disabled = true
+-            btnIngest.textContent = btnInject.textContent = '处理中…'
+-            say('')
+-            fetchJson(path, { method: 'POST', body: JSON.stringify({ dir, title: label }) })
+-              .then((r) => { say(r?.result ?? JSON.stringify(r), !r?.ok); if (r?.ok) setTimeout(refresh, 1200) })
+-              .catch((err) => say('请求失败: ' + err, true))
+-              .finally(() => {
+-                btnIngest.disabled = btnInject.disabled = false
+-                btnIngest.textContent = '内化（AI 造插件）'
+-                btnInject.textContent = '直接注入'
+-              })
+-          }
+-          btnIngest.addEventListener('click', () => doAction('/ingest', '内化插件'))
+-          btnInject.addEventListener('click', () => doAction('/inject', '直接注入'))
+-
+-          refresh()
+-          // 60s 轮询刷新（内化会话建好后自动出现）
+-          const timer = window.setInterval(refresh, 60000)
+-          return {
+-            dispose: () => window.clearInterval(timer),
+-          }
+-        },
+-      }),
+-    }),
++/** 薄 React 包装：渲染端将 entry.component 作为 React FC 调用。 */
++function SuperInjectorPage() {
++  const hostRef = useRef<HTMLDivElement | null>(null)
++  useEffect(() => {
++    const host = hostRef.current
++    if (!host) return
++    return mountPage(host)
++  }, [])
++  return createElement('div', { ref: hostRef })
++}
++
++export function apply(ctx: ClientContext): void {
++  ctx.effect(() => ctx.slots.inject('settings.section', () =>
++    ctx.slots.register(
++      { name: 'settings.section', id: 'super-injector-plugins', order: 50, label: () => '注入器' },
++      () => createElement(SuperInjectorPage, null),
++    ),
+   ), 'super-injector: settings page')
+ }
 diff --git a/src/index.ts b/src/index.ts
-index e64e8b1..cf2b6e4 100644
+index e64e8b1..3aec136 100644
 --- a/src/index.ts
 +++ b/src/index.ts
-@@ -241,8 +241,10 @@ export const Config = z.object({
+@@ -32,6 +32,7 @@ import { join, relative, dirname, resolve } from 'node:path'
+ import { homedir } from 'node:os'
+ import { spawnSync } from 'node:child_process'
+ import { pathToFileURL, fileURLToPath } from 'node:url'
++import { createRequire } from 'node:module'
+ 
+ // ═══════════════════════════════════════════════════════════════════════
+ // A: 插件生产线模板（dev_scaffold_plugin）——四种形态骨架：
+@@ -241,8 +242,10 @@ export const Config = z.object({
  export function apply(ctx: AppContext, config: Config): void {
    // 短名（去 scope）：日志文件名不能含 '/'（会变成子路径）
    const SHORT = ${JSON.stringify(pkgName.split('/').pop() ?? 'plugin')}
@@ -112,7 +408,7 @@ index e64e8b1..cf2b6e4 100644
    let cycles = 0
    let llmCalls = 0
    let lastRoute: { provider: string; model: string } | null = null
-@@ -393,7 +395,7 @@ export function apply(ctx: ClientContext): void {
+@@ -393,7 +396,7 @@ export function apply(ctx: ClientContext): void {
  }
  `
  
@@ -121,7 +417,25 @@ index e64e8b1..cf2b6e4 100644
  const SCAFFOLD_TSDOWN = (pkgName: string): string => `import { fileURLToPath } from 'node:url'
  import type { UserConfig } from 'tsdown'
  
-@@ -505,6 +507,9 @@ export interface Config {
+@@ -403,7 +406,7 @@ const CLIENT_EXTERNALS = [
+   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',
+   'cordis',
+   '@deepseek-ai/dsh-client-ui-slots',
+-  '@deepseek-ai/dsh-client-runtime/client',
++  '@deepseek-ai/dsh-client-ui-renderer/client',
+ ]
+ 
+ const clientBundle: UserConfig = {
+@@ -474,7 +477,7 @@ function scaffoldPackageJson(pkgName: string, description: string, form: string)
+       './package.json': './package.json',
+     }
+     ;(pkg as Record<string, unknown>).dsh = {
+-      client: { inject: ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-slots'], platform: 'web' },
++      client: { inject: ['@deepseek-ai/dsh-client-ui-slots'], platform: 'web' },
+     }
+   }
+   return JSON.stringify(pkg, null, 2) + '\n'
+@@ -505,6 +508,9 @@ export interface Config {
    watches: Array<{ dir: string; match: string }>
  }
  
@@ -131,7 +445,7 @@ index e64e8b1..cf2b6e4 100644
  export const Config = z.object({
    registryFile: z.string().default(''),
    profileNodeModules: z.string().default(''),
-@@ -514,7 +519,7 @@ export const Config = z.object({
+@@ -514,7 +520,7 @@ export const Config = z.object({
      dir: z.string().required(),
      match: z.string().required(),
    })).default([]),
@@ -140,7 +454,7 @@ index e64e8b1..cf2b6e4 100644
  
  interface RegistryEntry {
    dir: string
-@@ -564,8 +569,12 @@ function withOpLock<T>(fn: () => Promise<T> | T): Promise<T> {
+@@ -564,8 +570,12 @@ function withOpLock<T>(fn: () => Promise<T> | T): Promise<T> {
  
  export function apply(ctx: AppContext, config: Config): void {
    const logger = ctx.logger
@@ -155,7 +469,7 @@ index e64e8b1..cf2b6e4 100644
    // 热重载的 config 合并路径可能缺 schema 新字段（旧 fiber _config + patch 旧值），
    // 防御性兜底（schema 默认值只在 loader 装配时保证）。
    const intervalMs = config.intervalMs ?? 1500
-@@ -752,7 +761,9 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -752,7 +762,9 @@ export function apply(ctx: AppContext, config: Config): void {
      }
    }
  
@@ -166,7 +480,7 @@ index e64e8b1..cf2b6e4 100644
    function extractPatchBlocks(content: string): Array<{ id?: string; text: string }> {
      const lines = content.split('\n')
      const blocks: Array<{ id?: string; text: string }> = []
-@@ -761,12 +772,23 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -761,12 +773,23 @@ export function apply(ctx: AppContext, config: Config): void {
        const idMatch = /^\s*- id:\s*([^\s#]+)/.exec(line)
        if (idMatch) {
          if (current) blocks.push(current)
@@ -193,7 +507,20 @@ index e64e8b1..cf2b6e4 100644
        }
      }
      if (current) blocks.push(current)
-@@ -891,8 +913,13 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -885,14 +908,25 @@ export function apply(ctx: AppContext, config: Config): void {
+         if (name) {
+           const parts = name.startsWith('@') ? name.split('/') : [name]
+           candidates.push(join(profileNodeModules, ...parts, 'lib', 'index.js'))
++          candidates.push(join(profileNodeModules, ...parts, 'index.js'))
++          candidates.push(join(profileNodeModules, ...parts, 'dist', 'index.js'))
++        }
++        if (urlMatch) {
++          candidates.push(join(urlMatch, 'lib', 'index.js'))
++          candidates.push(join(urlMatch, 'index.js'))
++          candidates.push(join(urlMatch, 'dist', 'index.js'))
+         }
+-        if (urlMatch) candidates.push(join(urlMatch, 'lib', 'index.js'))
+         for (const lib of candidates) {
            if (existsSync(lib)) { libPath = lib; break }
          }
          if (libPath) {
@@ -209,7 +536,58 @@ index e64e8b1..cf2b6e4 100644
            for (const u of loadCache.keys()) {
              if (typeof u === 'string' && decodeURIComponent(u).includes(real)) { entryUrl = u; break }
            }
-@@ -1241,7 +1268,7 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -907,7 +941,7 @@ export function apply(ctx: AppContext, config: Config): void {
+         urls = [entryUrl]
+       }
+     } else {
+-      entryUrl = urls.find(u => u.endsWith('/lib/index.js'))
++      entryUrl = urls.find(u => u.endsWith('/lib/index.js') || u.endsWith('/index.js') || u.endsWith('/dist/index.js') || u.endsWith('/index.mjs')) ?? urls[0]
+     }
+     if (!entryUrl) return `INFO: 缓存中无匹配且磁盘降级失败 "${urlKey}" 的模块`
+     const entryUrlFinal = entryUrl
+@@ -1046,6 +1080,7 @@ export function apply(ctx: AppContext, config: Config): void {
+               const fiber = rebootCtx.registry.plugin(plugin, entry.options.config ?? {}, entry.getOuterStack)
+               fiber.entry = entry
+               entry.fiber = fiber
++              try { fiber.context.emit('internal/plugin', fiber) } catch {}
+               await fiber.await()
+               // 兜底：清 disabled（新 fiber 可能触发 loader case 7 标记）
+               try {
+@@ -1082,8 +1117,9 @@ export function apply(ctx: AppContext, config: Config): void {
+               if (name) {
+                 const cm = rebootCtx.get('clientModules') as { processOne?: (id: string) => unknown } | undefined
+                 if (cm && typeof cm.processOne === 'function') cm.processOne(name)
++                await refreshTypertRow(name, rebootCtx)
+               }
+-            } catch { /* client 补扫失败不阻塞 */ }
++            } catch { /* client/typert 补扫失败不阻塞 */ }
+             logger.info('[super-injector] 重启器重建完成（REPLACE 语义，fiber=%s）', entry.fiber?.state)
+           } catch (error) {
+             logger.error('[super-injector] 重启器重建失败: %s', String(error))
+@@ -1151,10 +1187,12 @@ export function apply(ctx: AppContext, config: Config): void {
+                 const nf = registry.plugin(fresh, entry.options.config ?? {}, () => [])
+                 nf.entry = entry
+                 entry.fiber = nf
++                try { nf.context.emit('internal/plugin', nf) } catch {}
+               }
+             }
+           }
+         }
++        await refreshTypertRow(match)
+         return `OK: ${match} 坏缓存兜底重载完成（无旧代回滚）`
+       } catch (e) {
+         for (const [u, job] of backup) loadCache.set(u, job)
+@@ -1182,7 +1220,9 @@ export function apply(ctx: AppContext, config: Config): void {
+           const nf2 = ctx.registry.plugin(fresh2, target.options.config ?? {}, () => [])
+           nf2.entry = target
+           target.fiber = nf2
++          try { nf2.context.emit('internal/plugin', nf2) } catch {}
+           normalizeEntriesByName(match)
++          await refreshTypertRow(match)
+           return `OK: registry 无 runtime，entry.fiber 直接重建（state=${nf2.state}）`
+         } catch (e) {
+           return 'ERROR: entry 重建失败: ' + (e instanceof Error ? e.stack : String(e))
+@@ -1241,7 +1281,7 @@ export function apply(ctx: AppContext, config: Config): void {
        const config = currentConfigOf(fibers[0]?._config)
        // ⚠️ 竞态修复：cordis 的 fiber.dispose() 是异步清理（_unload await disposables，
        // 含 context/tools 注册注销）——必须先 await 旧 fiber 完全 dispose，
@@ -218,7 +596,23 @@ index e64e8b1..cf2b6e4 100644
        // 重载连环 "already registered" 的根因）。registry.delete 是 fire-and-forget，
        // 所以这里直接 await entry.fiber 的 dispose（返回 disposalTask Promise）。
        const entryForDispose = [...ctx.loader.entries()].find((en) => {
-@@ -1306,7 +1333,7 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -1261,6 +1301,7 @@ export function apply(ctx: AppContext, config: Config): void {
+           const fiber = oldFiber.parent.registry.plugin(fresh, config, () => [])
+           fiber.entry = oldFiber.entry
+           if (fiber.entry) fiber.entry.fiber = fiber
++          try { fiber.context.emit('internal/plugin', fiber) } catch {}
+           newFibers.push(fiber)
+           rebuilt++
+         } catch (e) {
+@@ -1285,6 +1326,7 @@ export function apply(ctx: AppContext, config: Config): void {
+           const fiber = oldFiber.parent.registry.plugin(oldPlugin, currentConfigOf(oldFiber._config), () => [])
+           fiber.entry = oldFiber.entry
+           if (fiber.entry) fiber.entry.fiber = fiber
++          try { fiber.context.emit('internal/plugin', fiber) } catch {}
+         }
+       } catch { /* 尽力而为 */ }
+       const message = String(e instanceof Error ? (e.stack ?? e.message) : e)
+@@ -1306,7 +1348,7 @@ export function apply(ctx: AppContext, config: Config): void {
      // 清 disabled（幽灵 entry 隔离）：热重载后 client 模块可重新注册（UI 生效）
      normalizeEntriesByName(match)
      // ⚠️ 以下 client 操作必须用**完整包名**：client-modules 的 processOne 对
@@ -227,7 +621,7 @@ index e64e8b1..cf2b6e4 100644
      // 传短名会静默注册失败（实测 reload 报 client ✗ 的根因——microtask flush
      // 后来用完整名补注册，但返回信息已经错了）。
      const activeEntry = [...ctx.loader.entries()].find((en) => {
-@@ -1325,9 +1352,9 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -1325,12 +1367,14 @@ export function apply(ctx: AppContext, config: Config): void {
        if (cmDbg?.table) {
          const keys: string[] = []
          for (const k of cmDbg.table.keys()) keys.push(String(k))
@@ -239,7 +633,126 @@ index e64e8b1..cf2b6e4 100644
      } catch { /* 诊断失败不阻塞 */ }
      // client 模块补扫（表丢失/从未注册时自愈——web 重启后幽灵 entry 场景）
      refreshClientRow(fullName)
-@@ -1809,8 +1836,8 @@ export function apply(ctx: AppContext, config: Config): void {
++    // typert 契约补扫（防止 fiber 重建间隙被 typert-loader 撤回后未恢复）
++    await refreshTypertRow(fullName)
+     // client bundle 联动：host 重载后 bundle rev 变化通知浏览器（改 UI → 免手动刷新）
+     notifyClientRebuilt(fullName)
+     // 自检：完整包名查表（表 key 是完整包名，完全匹配）
+@@ -1461,6 +1505,15 @@ export function apply(ctx: AppContext, config: Config): void {
+   }
+   restoreStaging()
+ 
++  // ⚠️ 启动自净必须放在所有 dev_* 工具注册【之前】（2026-08-19 修复）：
++  // purgeStaleTools() 扫描 tools 表里所有 dev_ 前缀工具并注销——若调用点排在
++  // dev_stage_*（本函数下方 L1491+ 注册）之后，每次 apply 重入都会把刚注册的
++  // 5 个 stage 工具当场自清（"装了又没"振荡，self-heal.log 每 5-30 分钟一条
++  // purge-stale-tools 即为证据；08-16 还误伤过其他插件的 dev_mode_* 工具）。
++  // 此处（restoreStaging 之前）执行：清的是旧 fiber 残留的僵尸工具，随后注册的
++  // 全部 dev_* 工具（stage 5 个 + 其余 13 个）不再被自清。
++  purgeStaleTools()
++
+   safeRegister(defineTool({
+     name: 'dev_stage_add',
+     description: '开发侧挂：把测试/开发工具挂"后侧"（不进 tools schema、不污染缓存前缀），经 dev_stage_call 调用测试。execute 为 JS 代码字符串（function(args, ctx){...}），仅限可信代码。转正用 dev_stage_promote，丢弃用 dev_stage_demote。',
+@@ -1656,8 +1709,9 @@ export function apply(ctx: AppContext, config: Config): void {
+       const st = entry.fiber ? FIBER_NAMES[entry.fiber.state] : 'no-fiber'
+       if (st === 'active') continue
+       try {
+-        const p = entry.parent.remove(entry.id, true)
+-        if (p && typeof p.then === 'function') p.catch(() => { /* 忽略 */ })
++        // 0.1.6-alpha.2 起 EntryGroup.remove 是同步的（返回 void）：dispose 由它
++        // 自己完成，没有 promise 需要吞掉 rejection。
++        entry.parent.remove(entry.id, true)
+         logger.info('[super-injector] 清理残留 entry %s（%s）', entry.id, st)
+       } catch { /* 清理失败不阻塞 */ }
+     }
+@@ -1704,6 +1758,85 @@ export function apply(ctx: AppContext, config: Config): void {
+     } catch { /* client 联动失败不阻塞 */ }
+   }
+ 
++  /**
++   * Typert 契约自愈补扫：
++   * 热重载/注入后，若包导出 ./typert 但因 fiber 重建间隙被 typert-loader 撤回，
++   * 主动检查并补注册 manifest，防止 TypeRT Gateway 报:
++   * "its strict definition was withdrawn and SRC fallback is forbidden"。
++   */
++  async function refreshTypertRow(nameOrMatch?: string, targetCtx: any = ctx): Promise<number> {
++    let healedCount = 0
++    try {
++      const typert = targetCtx.get('typert') as any
++      if (!typert || !typert.local) return 0
++      const loader = targetCtx.get('loader') as any
++      if (!loader) return 0
++
++      const base = targetCtx.baseUrl ?? process.cwd()
++      const req = createRequire(base)
++
++      for (const entry of loader.entries()) {
++        const pkgName = entry.options?.name
++        if (!pkgName || entry.options.group || entry.disabled || !entry.fiber) continue
++        if (nameOrMatch && !pkgName.includes(nameOrMatch) && !entry.options.id?.includes(nameOrMatch)) {
++          continue
++        }
++
++        let pkgJsonPath: string
++        try {
++          pkgJsonPath = req.resolve(`${pkgName}/package.json`)
++        } catch {
++          continue
++        }
++
++        let pkg: any
++        try {
++          pkg = JSON.parse(readFileSync(pkgJsonPath, 'utf8'))
++        } catch {
++          continue
++        }
++
++        const exportsField = pkg.exports
++        if (!exportsField) continue
++        const target = exportsField['./typert']
++        if (!target) continue
++
++        let rel: string | undefined
++        if (typeof target === 'string') rel = target
++        else if (typeof target === 'object' && target !== null && typeof target.default === 'string') rel = target.default
++        if (!rel) continue
++
++        const typertPath = join(dirname(pkgJsonPath), rel)
++        try {
++          const mod = await import(pathToFileURL(typertPath).href)
++          const manifest = mod.TYPERT
++          if (!manifest || !Array.isArray(manifest.invocations)) continue
++
++          let needsHeal = false
++          for (const inv of manifest.invocations) {
++            const endpoint = `${inv.namespace}/${inv.method}`
++            if (!typert.local.get(endpoint)) {
++              needsHeal = true
++              break
++            }
++          }
++
++          if (needsHeal) {
++            typert.register(manifest)
++            healedCount++
++            logger.info('[super-injector] typert 契约已自愈补注册 %s', pkgName)
++            auditLog('typert-healed', `已补注册 ${pkgName} 的 ${manifest.invocations.length} 个 TypeRT 描述符`)
++          }
++        } catch (e) {
++          logger.warn('[super-injector] typert 补扫 %s 失败: %s', pkgName, String(e))
++        }
++      }
++    } catch (e) {
++      logger.warn('[super-injector] typert 模块补扫异常: %s', String(e))
++    }
++    return healedCount
++  }
++
+   /** 卸载后从 client 模块表移除行（client-modules 只订阅 internal/plugin 增事件，卸载不自动清）。 */
+   function removeClientRow(name: string): void {
+     try {
+@@ -1809,8 +1942,8 @@ export function apply(ctx: AppContext, config: Config): void {
        if (!cm || typeof cm.clientPath !== 'function') return 'client 服务不可用'
        let path = cm.clientPath(name)
        if (!path && cm.table && typeof cm.table.keys === 'function') {
@@ -250,7 +763,72 @@ index e64e8b1..cf2b6e4 100644
          for (const key of cm.table.keys()) {
            if (String(key).includes(name)) {
              path = cm.clientPath(key)
-@@ -1951,17 +1978,22 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -1891,21 +2024,31 @@ export function apply(ctx: AppContext, config: Config): void {
+   async function inject(dir: string): Promise<string> {
+     const absDir = resolve(dir)
+     const pkgPath = join(absDir, 'package.json')
+-    if (!existsSync(absDir) || !statSync(absDir).isDirectory()) return `ERROR: 目录不存在或不可访问: ${absDir}`
+-    if (!existsSync(pkgPath)) return `ERROR: ${absDir} 存在但没有 package.json（不是插件包目录）`
++    // ⚠️ 记账缺口修复（2026-08-19）：inject 的提前返回路径此前不调用 recordOp，
++    // stats.json 只记录"loader.create 成功但 hasActiveEntry=false"的失败（且不传
++    // reason）——21 次失败无因可查。现在每条失败路径都记账并带原因。
++    const failInject = (reason: string): string => {
++      recordOp('inject', false, reason)
++      return 'ERROR: ' + reason
++    }
++    if (!existsSync(absDir) || !statSync(absDir).isDirectory()) return failInject(`目录不存在或不可访问: ${absDir}`)
++    if (!existsSync(pkgPath)) return failInject(`${absDir} 存在但没有 package.json（不是插件包目录）`)
+     let pkg: { name?: string }
+     try {
+       pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+     } catch (e) {
+-      return 'ERROR: package.json 解析失败: ' + String(e)
++      return failInject('package.json 解析失败: ' + String(e))
+     }
+     const pkgName = pkg.name
+-    if (!pkgName) return 'ERROR: package.json 缺 name'
++    if (!pkgName) return failInject('package.json 缺 name')
+ 
+     // 清理同名残留 entry（disposed/failed），防止堆积与重载错位
+     cleanupStaleEntries(pkgName)
+ 
+-    if (hasActiveEntry(pkgName)) return `INFO: ${pkgName} 已激活运行，跳过注入`
++    if (hasActiveEntry(pkgName)) {
++      recordOp('inject', true, 'already-active')
++      return `INFO: ${pkgName} 已激活运行，跳过注入`
++    }
+     purgeCache(absDir)
+ 
+     // junction 链接到 profile node_modules（scoped 包需要两级目录）
+@@ -1926,19 +2069,20 @@ export function apply(ctx: AppContext, config: Config): void {
+         symlinkSync(absDir, linkDir, 'junction')
+       }
+     } catch (e) {
+-      return `ERROR: 建立 junction 失败（${linkDir}）: ${String(e)}`
++      return failInject(`建立 junction 失败（${linkDir}）: ${String(e)}`)
+     }
+ 
+     // 运行时装配
+     try {
+       await ctx.loader.create({ name: pkgName, config: {} })
+     } catch (e) {
+-      return `ERROR: loader.create 失败: ${e instanceof Error ? e.stack : String(e)}`
++      return failInject(`loader.create 失败: ${e instanceof Error ? e.stack : String(e)}`)
+     }
+     // 清 disabled（幽灵 entry 隔离）：注入即完整生效（host + client UI）
+     normalizeEntriesByName(pkgName)
+     // client 模块补扫（loader.create 的 microtask flush 在 normalize 前已跑）
+     refreshClientRow(pkgName)
++    await refreshTypertRow(pkgName)
+ 
+     const list = readRegistry()
+     if (!list.some(e => e.dir === absDir)) {
+@@ -1947,21 +2091,26 @@ export function apply(ctx: AppContext, config: Config): void {
+     }
+     const hostOk = hasActiveEntry(pkgName)
+     const client = clientStatus(pkgName)
+-    recordOp('inject', hostOk)
++    recordOp('inject', hostOk, hostOk ? undefined : `no-active-fiber (client=${client})`)
      return `OK: ${pkgName} 已注入（junction=${linkDir}）\n- host ${hostOk ? '✓' : '✗'}\n- ${client}`
    }
  
@@ -275,7 +853,7 @@ index e64e8b1..cf2b6e4 100644
        try {
          await entry.parent.remove(entry.id, true)
          steps.push('entry 已卸载: ' + opts.name)
-@@ -1976,18 +2008,24 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -1976,18 +2125,24 @@ export function apply(ctx: AppContext, config: Config): void {
      // ⚠️ 必须解析式追加（实测踩坑）：官方 patch 文件初始是顶层 `[]`（空数组），
      // 若盲 append `- id:` 会产生**两个顶层 YAML 值** → 解析必炸。正确做法：
      // 移除顶层 `[]` 空数组后再追加条目，保证文件始终是单一顶层值（列表）。
@@ -312,7 +890,50 @@ index e64e8b1..cf2b6e4 100644
          } else {
            steps.push('profile patch 写入失败')
          }
-@@ -2466,7 +2504,7 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -2007,14 +2162,19 @@ export function apply(ctx: AppContext, config: Config): void {
+       const parts = fullName.startsWith('@') ? fullName.split('/') : [fullName]
+       const linkDir = join(profileNodeModules, ...parts)
+       try {
+-        if (existsSync(linkDir)) {
++        let isLink = false
++        try { isLink = lstatSync(linkDir).isSymbolicLink() } catch { /* 不存在 */ }
++        if (isLink) {
++          rmSync(linkDir, { force: true })
++          steps.push('symlink 已删除: ' + linkDir)
++        } else if (existsSync(linkDir)) {
+           rmdirSync(linkDir)
+           steps.push('junction 已删除: ' + linkDir)
+         } else {
+-          steps.push('（junction 不存在）')
++          steps.push('（junction/symlink 不存在）')
+         }
+       } catch (e) {
+-        steps.push('junction 删除失败: ' + String(e))
++        steps.push('junction/symlink 删除失败: ' + String(e))
+       }
+     } else {
+       steps.push('（未找到完整包名，跳过 junction 清理）')
+@@ -2051,9 +2211,9 @@ export function apply(ctx: AppContext, config: Config): void {
+    * ⚠️ slot 白名单（2026-08-14 dsh-external-plugins 事件教训）：注册的 slot 名
+    * 必须位于已知合法集合内——早期只认 conversation.view，导致 settings.plugin.item
+    * 等设置页卡片被误判为坏骨架；同时白名单外的陌生 slot 名仍视为异常，防 typo。 */
+-  const KNOWN_SLOTS = ['conversation.view', 'settings.plugin.item', 'settings.plugins.tab', 'settings.section', 'settings.general.item', 'conversation.session.header.actions', 'conversation.session.header.utilities', 'conversation.input.dock', 'conversation.composer.dock', 'sidebar.footer.action', 'shell.overlay']
++  const KNOWN_SLOTS = ['conversation.approval.detail', 'conversation.chat.commandview', 'conversation.chat.node', 'conversation.chat.turnTail', 'conversation.composer', 'conversation.composer.bar', 'conversation.composer.dock', 'conversation.hero.agentPreset', 'conversation.hero.brand.mark', 'conversation.hero.workspace', 'conversation.hero.workspace.directoryFlow', 'conversation.input.attachments', 'conversation.input.dock', 'conversation.input.left', 'conversation.input.model', 'conversation.input.overlay', 'conversation.input.plan', 'conversation.input.right', 'conversation.message.images', 'conversation.session', 'conversation.session.header', 'conversation.session.header.actions', 'conversation.session.header.corner', 'conversation.session.header.lineage', 'conversation.session.header.utilities', 'conversation.trajectory.images', 'conversation.view', 'main', 'main.conversation', 'rightbar', 'rightbar.session', 'root', 'settings.action', 'settings.close', 'settings.general.item', 'settings.header', 'settings.models.footer', 'settings.onboarding', 'settings.plugin.item', 'settings.plugins.tab', 'settings.section', 'settings.trigger', 'shell.overlay', 'sidebar', 'sidebar.brand.mark', 'sidebar.brand.name', 'sidebar.footer.action', 'sidebar.panellist', 'sidebar.right.pane.tab', 'sidebar.right.pane.tab.title', 'sidebar.right.tab.document', 'sidebar.right.tab.guide', 'sidebar.right.tab.menu.item', 'sidebar.settings', 'sidebar.workspaces', 'sidebar.workspaces.directoryFlow', 'tool.call.images', 'tool.call.toolview']
+   const SLOT_ALT = KNOWN_SLOTS.map((s) => s.replace(/\./g, '\\.')).join('|')
+-  const REGISTER_NAME = new RegExp(`register\\(\\{[\\s\\S]*?name:\\s*['"](${SLOT_ALT})['"]`)
++  const REGISTER_NAME = new RegExp(`register\\(\\s*\\{[\\s\\S]*?name:\\s*['"](${SLOT_ALT})['"]`)
+ 
+   function clientSkeletonProblems(base: string): string[] {
+     const problems: string[] = []
+@@ -2361,7 +2521,6 @@ export function apply(ctx: AppContext, config: Config): void {
+       }
+     } catch { /* 自净失败不阻塞 */ }
+   }
+-  purgeStaleTools()
+ 
+   safeRegister(defineTool({
+     name: 'dev_inject_plugin',
+@@ -2466,7 +2625,7 @@ export function apply(ctx: AppContext, config: Config): void {
  
    safeRegister(defineTool({
      name: 'dev_reload_package',
@@ -321,7 +942,26 @@ index e64e8b1..cf2b6e4 100644
      parameters: {
        packageName: { type: 'string', description: '包路径子串（缺省 = 只列插件清单，不重载）' },
      },
-@@ -2520,7 +2558,7 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -2501,10 +2660,14 @@ export function apply(ctx: AppContext, config: Config): void {
+     },
+     async execute() {
+       const healed = healProfileLinks()
+-      recordOp('selfHeal', healed.length === 0)
+-      return healed.length > 0
+-        ? `OK: 已重建 ${healed.length} 个 junction\n- ` + healed.join('\n- ')
+-        : 'OK: 全部 link: 依赖 junction 健康（无需修复）'
++      const typertHealed = await refreshTypertRow()
++      recordOp('selfHeal', healed.length === 0 && typertHealed === 0)
++      const parts: string[] = []
++      if (healed.length > 0) parts.push(`已重建 ${healed.length} 个 junction:\n- ` + healed.join('\n- '))
++      if (typertHealed > 0) parts.push(`已自愈补注册 ${typertHealed} 个包的 TypeRT 契约`)
++      return parts.length > 0
++        ? `OK: 自愈完成\n` + parts.join('\n')
++        : 'OK: 全部 link: 依赖与 TypeRT 契约健康（无需修复）'
+     },
+   }))
+ 
+@@ -2520,7 +2683,7 @@ export function apply(ctx: AppContext, config: Config): void {
        render: (_args: unknown, value: unknown) => [{ type: 'text', text: String(value) }],
      },
      async execute(args: { profile?: string; check?: boolean }) {
@@ -330,7 +970,60 @@ index e64e8b1..cf2b6e4 100644
        let profileDirs: string[] = []
        try { profileDirs = readdirSync(profilesRoot).filter((d) => !d.startsWith('.')) } catch {
          return 'ERROR: 未找到 profiles 目录: ' + profilesRoot
-@@ -2718,10 +2756,10 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -2632,8 +2795,24 @@ export function apply(ctx: AppContext, config: Config): void {
+         profilePkg.dsh.profile.bundles = profilePkg.dsh.profile.bundles ?? []
+         if (profilePkg.dependencies[name]) steps.push('dependencies 已存在（跳过）')
+         else { profilePkg.dependencies[name] = 'link:' + dir; steps.push('dependencies += ' + name) }
++
++        // bundles 落在**启动路径**上：loader 对其中每一项都要求 `dsh.bundle.patch`，
++        // 缺了就在启动时 throw（app-boot/src/profile.ts 的 `declares no dsh.bundle`）。
++        // 代价不对称得离谱——只是 link 一下，却变成「关掉 DSH 之后再也起不来」，
++        // 只能手改 profile 的 JSON 把自己捞出来。所以进 bundles 之前先验资格。
++        //
++        // 不合格时**只 link、不进 bundles**：loader.create 的运行时注入照常生效，
++        // 包能用，只是不参与下次启动的装配。把「现在能跑」和「重启后还在」分成两件事，
++        // 比让它们一起失败要好。
++        const declaredPatch = (pkg.dsh && pkg.dsh.bundle && pkg.dsh.bundle.patch) as string | undefined
++        const bundleReady = typeof declaredPatch === 'string' && declaredPatch !== ''
++          && existsSync(join(dir, declaredPatch))
+         if (profilePkg.dsh.profile.bundles.includes(name)) steps.push('bundles 已存在（跳过）')
+-        else { profilePkg.dsh.profile.bundles.push(name); steps.push('bundles += ' + name) }
++        else if (!bundleReady) {
++          steps.push('bundles 未加入：缺 dsh.bundle.patch' + (declaredPatch ? `（${declaredPatch} 不存在）` : '')
++            + '——加进去会让 profile 启动失败（loader 会 throw）。运行时注入仍已生效；'
++            + '要持久装配请补 cordis.patch.yml 并在 package.json 写 dsh.bundle.patch，然后重跑本工具。')
++        } else { profilePkg.dsh.profile.bundles.push(name); steps.push('bundles += ' + name) }
+         writeFileSync(profilePkgPath, JSON.stringify(profilePkg, null, 2) + '\n', 'utf8')
+ 
+         // node_modules junction（@scope/name 两级目录）
+@@ -2657,16 +2836,25 @@ export function apply(ctx: AppContext, config: Config): void {
+           steps.push('loader entry 已存在（跳过 create）')
+           normalizeEntriesByName(name)
+           refreshClientRow(name)
++          await refreshTypertRow(name)
+         } else {
+           await ctx.loader.create({ name })
+           normalizeEntriesByName(name)
+           refreshClientRow(name)
++          await refreshTypertRow(name)
+           steps.push('loader.create 已热装配（免重启生效）')
+         }
+ 
+         const client = clientStatus(name)
+         recordOp('install', steps.some(s => s.startsWith('dependencies +=') || s.startsWith('dependencies 已存在')))
+-        return 'OK: ' + name + ' 热装配完成\n- ' + steps.join('\n- ') + `\n- ${client}\n（重启后由 bundles 列表正常装配，双路径一致；patch 层配置重启后接管）`
++        // 结尾那句必须跟着事实走：这次没进 bundles 的话，「重启后由 bundles 装配」
++        // 就是假的，而一句会在重启后落空的承诺比不说更糟——用户会以为已经持久化了。
++        const persisted = profilePkg.dsh.profile.bundles.includes(name)
++        const tail = persisted
++          ? '（重启后由 bundles 列表正常装配，双路径一致；patch 层配置重启后接管）'
++          : '（本包**不会**在重启后装配：它没有 dsh.bundle.patch，bundles 未收录。'
++            + '本次只是运行时注入，重启即失。补上 cordis.patch.yml 与 dsh.bundle.patch 后重跑本工具即可持久化。）'
++        return 'OK: ' + name + ' 热装配完成\n- ' + steps.join('\n- ') + `\n- ${client}\n${tail}`
+       } catch (e) {
+         return 'ERROR: 安装失败: ' + String(e)
+       }
+@@ -2718,10 +2906,10 @@ export function apply(ctx: AppContext, config: Config): void {
      }
    }
  
@@ -344,7 +1037,7 @@ index e64e8b1..cf2b6e4 100644
      const candidates = [
        join(process.env.USERPROFILE ?? '', '.workbuddy', 'binaries', 'PortableGit', 'versions', '1.2.0', 'usr', 'bin', 'bash.exe'),
        'C:/Program Files/Git/bin/bash.exe',
-@@ -2730,6 +2768,12 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -2730,6 +2918,12 @@ export function apply(ctx: AppContext, config: Config): void {
      for (const c of candidates) {
        if (existsSync(c)) return c
      }
@@ -357,7 +1050,7 @@ index e64e8b1..cf2b6e4 100644
      return ''
    }
  
-@@ -2947,12 +2991,13 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -2947,12 +3141,13 @@ export function apply(ctx: AppContext, config: Config): void {
      async execute() {
        const results: Array<[string, boolean, string]> = []
        const check = (name: string, ok: boolean, detail = ''): void => { results.push([name, ok, detail]) }
@@ -375,7 +1068,7 @@ index e64e8b1..cf2b6e4 100644
        try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* 忽略 */ }
        mkdirSync(tmpDir, { recursive: true })
        try {
-@@ -2996,7 +3041,7 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -2996,7 +3191,7 @@ export function apply(ctx: AppContext, config: Config): void {
            check('注入（host ✓）', false, inj + '\n' + diag)
          }
          // ── 4. 热重载 → fiber uid 变化（自包含：重载 selftest-runner 自身。
@@ -384,7 +1077,7 @@ index e64e8b1..cf2b6e4 100644
          const beforeUid = (() => { for (const e of ctx.loader.entries()) { const o = e.options; if (!o.group && String(o.name) === TEST_PKG && e.fiber) return e.fiber.uid } return null })()
          try {
            // 确保模块在缓存（purge 旧 key + 重新 import——固定目录解析一致）
-@@ -3111,7 +3156,7 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -3111,7 +3306,7 @@ export function apply(ctx: AppContext, config: Config): void {
    // - 静态内容（身份/能力声明，编译期常量）→ order 靠前（头部）：tools schema
    //   变更（注入/转正工具）时静态段仍在缓存前缀内，只伤 schema 之后；
    // - 动态内容（记忆检索/实时状态）→ 严禁进 system 头部：走消息尾追加
@@ -393,7 +1086,15 @@ index e64e8b1..cf2b6e4 100644
    // - 本段 text 必须保持编译期常量——任何每轮变化的动态拼接都会全灭前缀缓存。
    // ⚠️ 容忍重复注册（实测：自重载 rebuild 时旧 entry 的 context 可能残留，
    // duplicate 会让 apply 整体 failed → 注入器死亡 + 自愈 3 连败）。duplicate
-@@ -3181,12 +3226,13 @@ export function apply(ctx: AppContext, config: Config): void {
+@@ -3139,6 +3334,7 @@ export function apply(ctx: AppContext, config: Config): void {
+   logger.info('[super-injector] 就绪：watch %d 目录（%dms），autoRestore=%s', watches.length, intervalMs, String(config.autoRestore))
+   // B: 每次装配后仲裁——幽灵压制官方时自动清理恢复（含历史残留场景）
+   arbitrateOfficial()
++  void refreshTypertRow()
+ 
+   // ⚠️ client-modules pkgMeta 缓存自愈（实测）：bundle 装配的插件在
+   // client-modules 首次扫描时 junction 可能未建 → resolvePkgJson 抛 →
+@@ -3181,12 +3377,13 @@ export function apply(ctx: AppContext, config: Config): void {
        type: 'user/message',
        seq: 0,
        time: Date.now(),
@@ -412,11 +1113,47 @@ index e64e8b1..cf2b6e4 100644
        },
      }]
      const handle = await agentsSvc.create({
+@@ -3206,6 +3403,27 @@ export function apply(ctx: AppContext, config: Config): void {
+         res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' })
+         res.end(JSON.stringify(obj))
+       }
++      // A named plugin route is matched ahead of the shell's auth gate, so the
++      // fence has to live here. This API injects, uninstalls and ingests local
++      // plugin packages — that is code execution and filesystem reads for
++      // whoever can reach the port, and the web server is normally bound to
++      // 0.0.0.0. Refuse without a verdict; refuse when the trust surface is
++      // missing. Mirrors @suxeca/dsh-expression-mode and @suxeca/dsh-note-board.
++      const connection = typeof ctx.get === 'function' ? ctx.get('connection') as {
++        requestRejection?: (request: unknown) => 401 | 403 | undefined
++      } | undefined : undefined
++      if (connection === undefined || typeof connection.requestRejection !== 'function') {
++        return send(503, { ok: false, error: '认证服务暂不可用' })
++      }
++      let rejection: 401 | 403 | undefined
++      try {
++        rejection = connection.requestRejection(req)
++      } catch {
++        return send(503, { ok: false, error: '无法确认请求身份' })
++      }
++      if (rejection !== undefined) {
++        return send(rejection, { ok: false, error: rejection === 401 ? '请先登录' : '请求来源不受信任' })
++      }
+       try {
+         const url = new URL(req.url ?? '/', 'http://localhost')
+         const path = url.pathname.replace(/^\/super-injector\/api/, '') || '/'
 diff --git a/tsdown.config.ts b/tsdown.config.ts
-index bdbe55d..39c71a9 100644
+index bdbe55d..de07f83 100644
 --- a/tsdown.config.ts
 +++ b/tsdown.config.ts
-@@ -34,4 +34,25 @@ const clientBundle: UserConfig = {
+@@ -7,7 +7,6 @@ const CLIENT_EXTERNALS = [
+   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client',
+   'cordis',
+   '@deepseek-ai/dsh-client-ui-slots',
+-  '@deepseek-ai/dsh-client-runtime/client',
+ ]
+ 
+ const clientBundle: UserConfig = {
+@@ -34,4 +33,25 @@ const clientBundle: UserConfig = {
    },
  }
  
