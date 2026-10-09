@@ -35,7 +35,7 @@
 | PDF 拖放直传 | 仓库内　 | PDF/文档拖拽上传并在输入框注入引用 | 本地 link | ✅ v0.1.0 |
 | 笔记看板　　 | 仓库内　 | 会话绑定的 Markdown 笔记：KaTeX 渲染 + 每轮注入 + 增量播报 | 本地 link | ✅ v0.2.0 |
 | 鲸鱼下潜动画 | 收录　 | DeepSeek 灵感鲸鱼潜水状态指示动画 | 本地 link | ✅ v0.3.0 |
-| 浏览器兼容补丁 | 私人　 | polyfill `crypto.randomUUID` / `AbortSignal.*` | 私人 link | ✅ 在用 |
+| 浏览器兼容补丁 | 私人　 | 纯 HTTP 远端/局域网/WebView 兼容：`randomUUID` / `clipboard` / `AbortSignal.*` | 私人 link | ✅ 在用 |
 | 推理模式路由 | 预设　 | 任务感知路由：spec/react/weak + 首轮工具裁剪 | 复制安装 | ✅ v2 |
 
 ---
@@ -151,18 +151,27 @@ pnpm dsh plugin --profile web add link:<repo>/packages/dsh-pdf-drop
 
 ### 7. 浏览器兼容补丁（🔒 私人使用，源码不入库）
 
-纯 Client 私人插件；本仓库**只记录原理**，不收录源码、包名、安装路径或部署信息。缺失 API 会导致目录选择器、附件草稿与 RPC 调用崩溃。
+纯 Client 私人插件；本仓库**只记录原理**，不收录源码、包名、安装路径或部署信息。
 
-| 缺失 API | 场景 |
+**解决场景**：通过纯 HTTP 局域网、NetBird / Tailscale 虚拟网段、移动端或旧引擎 WebView **远程访问 DSH Web GUI** 时，浏览器处于**非安全上下文（Non-Secure Context）**，多项关键 Web API 缺失，会导致目录选择器新建文件夹、附件草稿、RPC ID 分配、消息与代码块复制等操作直接抛错或崩溃。
+
+| 缺失 API | 场景与影响 |
 | --- | --- |
-| `crypto.randomUUID` | secure-context-only（仅 HTTPS / loopback 存在） |
-| `AbortSignal.timeout` / `AbortSignal.any` | 旧引擎 / 嵌入式 WebView 缺失 |
+| `crypto.randomUUID` | secure-context-only（纯 HTTP 局域网 / NetBird / Tailscale 远程访问时缺失，仅 HTTPS 或 `127.0.0.1` 存在）；缺失会导致目录选择器新建文件夹、附件草稿、RPC ID 分配等直接崩溃 |
+| `navigator.clipboard` | 非安全上下文 / Android 移动端浏览器缺失；缺失会导致所有消息复制、代码块导出按钮点击抛出未捕获异常 |
+| `AbortSignal.timeout` / `AbortSignal.any` | 旧引擎 / 嵌入式 WebView / 移动端浏览器缺失；缺失会导致一元 RPC 请求（`apiproxy`）调用直接失败 |
+| `window.isSecureContext` | 远程非安全上下文下为 `false`；部分组件强依赖此标记做特权环境 gating |
 
 | 实现原理　　 | 说明（幂等：原生存在时跳过） |
 | --- | --- |
-| `randomUUID` | `crypto.getRandomValues` 构造 RFC 4122 UUID v4 |
-| `timeout(ms)` | 一次性定时器 + `AbortController`，reason 为 `TimeoutError` |
+| `randomUUID` | 优先 `crypto.getRandomValues` 构造 RFC 4122 UUID v4，极低端环境回退 `Math.random` |
+| `clipboard.writeText` | 隐藏只读 `textarea` + `document.execCommand('copy')` 优雅降级，杜绝复制报错 |
+| `timeout(ms)` | 一次性定时器 + `AbortController`，reason 为 `TimeoutError`（DOMException 兜底） |
 | `any(signals)` | `AbortController` 组合，reason 取首个 abort 输入 |
+| `isSecureContext` | 声明为 `true` 绕过宿主环境的严格特权校验 gate |
+
+> **注意（远端访问生态兼容）**：  
+> 除浏览器 Web API 外，部分依赖本地回环的第三方插件（如 `dsh-agy`）在绑定 `0.0.0.0` 远程访问时也会遇到安全门禁。其管理面 RPC 现已在 DSH BrowserAuth 围栏下放行（全网卡可用），OAuth 回调则保持回环保护（远端登录建议通过 CLI `dsh-agy login` 进行）。
 
 **参考**：上游讨论 [#514](https://github.com/deepseek-ai/deepseek-harness/discussions/514) / [#1050](https://github.com/deepseek-ai/deepseek-harness/discussions/1050)；上游原生兼容后可移除。
 
