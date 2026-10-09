@@ -71,7 +71,19 @@ interface Snapshot {
 }
 
 function readSnapshot(ctx: HostContext): Snapshot {
-  const raw = ctx.settings.get('llm-pi-ai') as ConfigLike | undefined
+  let raw: ConfigLike | undefined
+  const settings = (ctx as any).settings
+  if (typeof settings?.get === 'function') {
+    raw = settings.get('llm-pi-ai') as ConfigLike | undefined
+  } else if (typeof settings?.describe === 'function') {
+    const desc = settings.describe().find((d: any) => d.ns === 'llm-pi-ai')
+    raw = desc?.value as ConfigLike | undefined
+  }
+  if (!raw) {
+    const configEditor = (ctx as any).configEditor
+    const entry = configEditor?.entries?.().find((e: any) => e.options?.id === 'llm-pi-ai')
+    raw = (entry?.fiber?.config ?? entry?.options?.config) as ConfigLike | undefined
+  }
   return { providers: (raw?.providers ?? {}) as Record<string, ProviderProfileLike> }
 }
 
