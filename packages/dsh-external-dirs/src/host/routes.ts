@@ -184,13 +184,30 @@ export function registerExternalDirRoutes(ctx: Context, options: ExternalDirRout
 
   /** Answer an untrusted/unauthenticated request; true when it was rejected. */
   const rejected = (req: IncomingMessage, res: ServerResponse): boolean => {
-    // Ask the composition's connection service to judge browser trust. It is
-    // bundled with the Web profiles, so a deployment without it simply has no
-    // fence to consult and the route stays usable.
+    // Ask the composition's connection service to judge browser trust, and
+    // **fail closed**. The service ships with the Web profiles, so a missing or
+    // throwing fence means this is not a composition these routes were written
+    // for: they expose the operator's home directory and rewrite the external
+    // root list, so serving without a verdict would hand both to any local
+    // process or LAN peer. `dsh-note-board`, `dsh-expression-mode`,
+    // `dsh-custom-thinking` and `dsh-typesafe` all refuse in the same case.
     const connection = Reflect.get(ctx, "connection") as ConnectionLike | undefined
-    if (connection === undefined || typeof connection.requestRejection !== "function") return false
-    const rejection = connection.requestRejection(req)
+    if (connection === undefined || typeof connection.requestRejection !== "function") {
+      sendJson(res, 503, fail("authentication service is not available"))
+      return true
+    }
+    let rejection: 401 | 403 | undefined
+    try {
+      rejection = connection.requestRejection(req)
+    } catch {
+      sendJson(res, 503, fail("could not verify the request"))
+      return true
+    }
     if (rejection === undefined) return false
+    if (rejection !== 401 && rejection !== 403) {
+      sendJson(res, 503, fail("could not verify the request"))
+      return true
+    }
     res.statusCode = rejection
     res.end()
     return true

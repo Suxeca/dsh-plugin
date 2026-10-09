@@ -301,6 +301,51 @@ async function handleJsonUpload(ctx: Context, req: IncomingMessage, res: ServerR
   sendJson(res, { ok: true, value: landing(filename, path, targetRoot, rel, resolvedFrom, info.size) })
 }
 
+/** Structural view of the composed connection trust surface. */
+interface ConnectionLike {
+  requestRejection(req: IncomingMessage): 401 | 403 | undefined
+}
+
+/**
+ * Refuse a request that is not trusted, before any body is read or written.
+ *
+ * A named plugin route is matched ahead of the shell's auth gate, so the fence
+ * has to live here — `isCrossSiteRequest` only stops a foreign *page* from
+ * firing the request, while a marker-less client (curl, a script on the LAN)
+ * passes it. This route writes to a directory the request itself names, so an
+ * upload admitted without a verdict is an unauthenticated arbitrary-directory
+ * write.
+ *
+ * Fails closed: a missing or throwing trust surface refuses the upload.
+ *
+ * @param ctx - host context carrying the composed `connection` service.
+ * @param req - incoming request.
+ * @param res - response answered on when the request is refused.
+ * @returns true when the request was refused and the handler must stop.
+ */
+export function rejected(ctx: Context, req: IncomingMessage, res: ServerResponse): boolean {
+  try {
+    const connection = service<ConnectionLike>(ctx, "connection")
+    if (connection === undefined || typeof connection.requestRejection !== "function") {
+      sendJson(res, { ok: false, error: { code: "auth-unavailable", message: "Authentication is unavailable" } }, 503)
+      return true
+    }
+    const rejection = connection.requestRejection(req)
+    if (rejection === undefined) return false
+    if (rejection !== 401 && rejection !== 403) throw new Error("invalid trust verdict")
+    sendJson(res, {
+      ok: false,
+      error: {
+        code: rejection === 401 ? "unauthenticated" : "untrusted",
+        message: rejection === 401 ? "Authentication required" : "Request origin is not trusted",
+      },
+    }, rejection)
+  } catch {
+    sendJson(res, { ok: false, error: { code: "auth-unavailable", message: "Could not verify the request" } }, 503)
+  }
+  return true
+}
+
 /**
  * Register the `/pdf-drop/upload` route.
  * @param ctx - host plugin context carrying `webServer`.
@@ -311,6 +356,7 @@ export function registerPdfDropRoutes(ctx: HostContext): () => void {
     kind: "exact",
     path: "/pdf-drop/upload",
     handler: async (req: IncomingMessage, res: ServerResponse) => {
+      if (rejected(ctx, req, res)) return
       if (req.method !== "POST") {
         return sendJson(res, { ok: false, error: { code: "method-not-allowed", message: "POST only" } }, 405)
       }

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { mkdtemp, rm, mkdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { isCrossSiteRequest, resolveTargetDirectory, sanitizeFilename, sanitizeRelativePath } from "../src/host/routes.ts"
+import { isCrossSiteRequest, rejected as rejectedRequest, resolveTargetDirectory, sanitizeFilename, sanitizeRelativePath } from "../src/host/routes.ts"
 import { formatFileMention, isDocumentFile, resolveUploadTarget } from "../src/client/index.ts"
 
 describe("PDF Drop Plugin Host", () => {
@@ -74,6 +74,52 @@ describe("PDF Drop Plugin Host", () => {
     expect(isCrossSiteRequest(headers({ origin: "http://evil.example", host: "127.0.0.1:3080" }))).toBe(true)
     expect(isCrossSiteRequest(headers({ origin: "http://100.98.198.73:3080", host: "100.98.198.73:3080" }))).toBe(false)
     expect(isCrossSiteRequest(headers({ host: "100.98.198.73:3080" }))).toBe(false)
+  })
+})
+
+describe("PDF Drop upload trust fence", () => {
+  const request = (headers: Record<string, string> = {}) => ({ headers }) as never
+  const response = () => {
+    const captured = { status: 0, body: "" }
+    const res = {
+      writeHead: (status: number) => { captured.status = status },
+      end: (body?: string) => { captured.body = body ?? "" },
+    } as never
+    return { captured, res }
+  }
+  const context = (connection: unknown) => ({
+    get: (name: string) => (name === "connection" ? connection : undefined),
+  }) as never
+
+  it("refuses an unauthenticated request before the body is read", () => {
+    const { captured, res } = response()
+    expect(rejectedRequest(context({ requestRejection: () => 401 }), request(), res)).toBe(true)
+    expect(captured.status).toBe(401)
+  })
+
+  it("refuses an untrusted origin", () => {
+    const { captured, res } = response()
+    expect(rejectedRequest(context({ requestRejection: () => 403 }), request(), res)).toBe(true)
+    expect(captured.status).toBe(403)
+  })
+
+  it("fails closed when the trust surface is missing entirely", () => {
+    const { captured, res } = response()
+    expect(rejectedRequest(context(undefined), request(), res)).toBe(true)
+    expect(captured.status).toBe(503)
+  })
+
+  it("fails closed when the trust surface throws", () => {
+    const { captured, res } = response()
+    const throwing = { requestRejection: () => { throw new Error("no verdict") } }
+    expect(rejectedRequest(context(throwing), request(), res)).toBe(true)
+    expect(captured.status).toBe(503)
+  })
+
+  it("admits a trusted request", () => {
+    const { captured, res } = response()
+    expect(rejectedRequest(context({ requestRejection: () => undefined }), request(), res)).toBe(false)
+    expect(captured.status).toBe(0)
   })
 })
 
