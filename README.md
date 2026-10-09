@@ -109,6 +109,8 @@ dev_inject_plugin <repo>/packages/dsh-custom-thinking
 
 ### 4. dsh-quota-meter · 多模型配额与余额仪表盘
 
+> ⚠️ **本地独占，未收录进本仓库**：`packages/dsh-quota-meter/` 已 gitignore。源码内含 Antigravity 公开 OAuth client secret，GitHub 推送保护会拦截。本机通过 link 安装不受影响。
+
 | 项　　 | 说明 |
 | --- | --- |
 | 定位　　 | 输入框上方动态配额环：支持 CPA Codex 周额度、Command Code 周额度、DeepSeek 余额以及 agy 配额实时轮询 |
@@ -340,13 +342,14 @@ packages/                  # 仓库内维护插件（monorepo，tsdown 构建 + 
   dsh-external-dirs/       #   官方侧边栏「外部目录」tab（2026-09-10 新增）
   dsh-mobile-polish/
   dsh-pdf-drop/
-  dsh-quota-meter/
+  dsh-quota-meter/         #   🔒 本地独占，gitignored（含 Antigravity 公开凭据）
   dsh-secure-context-polyfill/   # 🔒 私人，gitignored
 third-party/               # 收录的在用插件（公开上游 submodule / 本地快照）
   dsh-super-injector/      #   submodule（本地修复 commit）
   dsh-smooth-stream/       #   本地修复版（clampLag，PR #6）
   dsh-synapse/             #   本地快照（PR #5）
   dsh-wallpaper-engine/    #   本地快照
+  dsh-agy/                 #   🔒 本地独占，gitignored（含 Antigravity 公开凭据）
 presets/                   # 推理模式路由预设（复制到 ~/.dsh/.agent-presets/ 安装）
   router-standard/         #   通用路由（routing-suite 范式；含 MIT LICENSE）
 docs/                      # 文档
