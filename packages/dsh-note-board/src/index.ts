@@ -20,12 +20,14 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import { DEFAULT_AUDIT_INBOX, DEFAULT_LEDGER_FILES, auditInboxFor, resolveLedger, type LedgerDeps } from './host/ledgers.ts'
+import { DEFAULT_AUDIT_INBOX, DEFAULT_LEDGER_FILES, auditInboxFor, resolveLedger, writableRef, type LedgerDeps } from './host/ledgers.ts'
 import { registerLedgerInjection } from './host/inject.ts'
+import { injectNoteBoardReadTool } from './host/entry-read.ts'
 import { MAX_READ_CHARS, readBoundedFile } from './host/read.ts'
 import { registerBoardCommand } from './host/command.ts'
 import { registerBoardRoutes } from './host/routes.ts'
 import type { LedgerRef } from './shared.ts'
+import { DEFAULT_PINNED_SECTIONS, DEFAULT_RUN_LOG_SECTIONS } from './sections.ts'
 
 export const name = '@suxeca/dsh-note-board'
 
@@ -39,7 +41,7 @@ export const name = '@suxeca/dsh-note-board'
  * injected text stable while a log grows underneath it. A stable body is also
  * what stops a growing note from re-injecting itself every turn.
  */
-export const DEFAULT_PINNED_SECTIONS = ['FROZEN*', 'RULES', 'VERDICT*']
+export { DEFAULT_PINNED_SECTIONS } from './sections.ts'
 
 /**
  * `webServer` is what the route module reads through a Cordis accessor, so it
@@ -84,7 +86,7 @@ export interface Config {
   /** How long a catalogue scan is reused, in milliseconds. */
   catalogTtlMs: number
   /**
-   * Characters injected into the conversation each turn.
+   * Soft character target for resident knowledge; headers/index add overhead.
    *
    * This plugin is what injects, so the value is its own; it is configurable
    * because a deployment may also run a companion writer that injects the same
@@ -102,11 +104,13 @@ export interface Config {
   ledgerFiles: string[]
   /**
    * Section ids the injected body always carries whole, as exact ids or
-   * `PREFIX*` patterns (case-insensitive). Empty means
-   * {@link DEFAULT_PINNED_SECTIONS}; `['*']` pins everything, restoring the
-   * pre-pinning behaviour where the body was the whole note, clamped.
+   * `PREFIX*` patterns (case-insensitive). Defaults to
+   * {@link DEFAULT_PINNED_SECTIONS}; `['*']` pins all knowledge, not run logs.
+   * An explicit empty array pins no sections (the preamble remains resident).
    */
   pinnedSections: string[]
+  /** Run-log ids/prefixes: browsing only, excluded from automatic body and deltas. */
+  runLogSections?: string[]
   /**
    * Name of the audit-inbox directory, created beside a note. Empty means
    * {@link DEFAULT_AUDIT_INBOX}.
@@ -154,6 +158,7 @@ export const Config: Schema<Config> = Schema.object({
   // truth in `host/ledgers.ts` instead of being spelled out twice.
   ledgerFiles: Schema.array(Schema.string()).default([]),
   pinnedSections: Schema.array(Schema.string()).default([...DEFAULT_PINNED_SECTIONS]),
+  runLogSections: Schema.array(Schema.string()).default([...DEFAULT_RUN_LOG_SECTIONS]),
   auditInboxName: Schema.string().default(''),
   // Default `last`: the contract frames the data. See host/inject.ts.
   placement: Schema.union(['first', 'last']).default('last'),
@@ -259,6 +264,7 @@ export function apply(ctx: Context, config: Config): void {
     cacheTtlMs: config.catalogTtlMs,
     ledgerFiles: config.ledgerFiles.length > 0 ? config.ledgerFiles : DEFAULT_LEDGER_FILES,
     pinnedSections: config.pinnedSections,
+    runLogSections: config.runLogSections ?? DEFAULT_RUN_LOG_SECTIONS,
     auditInboxName: config.auditInboxName !== '' ? config.auditInboxName : DEFAULT_AUDIT_INBOX,
     placement: config.placement,
     delivery: config.delivery,
@@ -286,12 +292,12 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   const service: NoteLedgersService = {
-    resolve: (sessionId, cwd) => resolveLedger(
+    resolve: async (sessionId, cwd) => writableRef(await resolveLedger(
       // A caller-supplied cwd wins, so the caller's own view of the session is
       // authoritative for its injection even if the sessions service disagrees.
       cwd === undefined ? deps : { ...deps, cwdOf: async () => cwd },
       sessionId,
-    ),
+    )),
     async read(sessionId, cwd) {
       const ref = await service.resolve(sessionId, cwd)
       if (ref.source === 'none') return { ref, text: '', inboxDir: '' }
@@ -324,4 +330,14 @@ export function apply(ctx: Context, config: Config): void {
       error instanceof Error ? error.message : String(error),
     )
   }
+
+  // Optional model tool: wait for tools to mount, and scope its registration to
+  // that late-injected Fiber. Do not add tools to the plugin's hard inject list;
+  // the board and UI remain mounted in compositions without model tools.
+  injectNoteBoardReadTool(ctx, {
+    resolve: (sessionId, cwd) => service.resolve(sessionId, cwd),
+    pinnedSections: deps.pinnedSections,
+    runLogSections: deps.runLogSections,
+    maxReadChars: deps.readBudget,
+  })
 }

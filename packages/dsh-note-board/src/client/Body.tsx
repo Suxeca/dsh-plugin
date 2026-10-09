@@ -1,12 +1,12 @@
 /**
  * The 笔记看板 / Note board Conversation View.
  *
- * Three segments over one question — "what is available, what is confirmed, and
- * what did the auditors say":
+ * Four segments over one session-bound source:
  *
- *   · 笔记目录       every note on this machine, and which one this session uses
- *   · 笔记正文   the session's bound note, as Markdown with KaTeX math
- *   · 审计判决       that note's adversarial-audit verdicts
+ *   · 笔记目录       available notes and the current binding
+ *   · 知识库         knowledge, conditions, evidence and open questions
+ *   · 运行日志       explicit log sections / file references, never auto-injected
+ *   · 审计判决       the note's adversarial-audit verdicts
  *
  * The binding is **per session** and the board says so. It used to read one
  * globally fixed path, which meant every conversation showed one project’s note whether
@@ -36,6 +36,8 @@ import type {
 } from '../shared.ts'
 import { ROUTE_ATTACH, ROUTE_AUDITS, ROUTE_CATALOG, ROUTE_DETACH, ROUTE_INJECTION, ROUTE_LEDGER, ROUTE_PREFIX } from '../shared-routes.ts'
 import { CatalogView } from './Catalog.tsx'
+import { BudgetDetails } from './Budget.tsx'
+import { Button } from './controls.tsx'
 import { boardStrings, markdownLabels, toggleBoardLocale, useBoardLocale, useBoardStrings, type BoardStrings } from './i18n.ts'
 import { CONTENT_COLUMN, T } from './theme.ts'
 
@@ -52,8 +54,20 @@ import { CONTENT_COLUMN, T } from './theme.ts'
  * in: a boundary that catches a throw must not itself depend on props that the
  * failed subtree was responsible for.
  */
-class BoardErrorBoundary extends Component<{ readonly children: ReactNode }, { error: Error | null }> {
-  constructor(props: { readonly children: ReactNode }) {
+/** Props of the boundary: the subtree, plus what the fallback needs to read the note. */
+interface BoardBoundaryProps {
+  /** Supplied as the third `createElement` argument, so it is optional here. */
+  readonly children?: ReactNode
+  /**
+   * Forwarded to the plain-text fallback so a crashed renderer still shows the
+   * note. Optional because the boundary must stay renderable even when the
+   * owner handed the view nothing.
+   */
+  readonly sessionId?: string
+}
+
+class BoardErrorBoundary extends Component<BoardBoundaryProps, { error: Error | null }> {
+  constructor(props: BoardBoundaryProps) {
     super(props)
     this.state = { error: null }
   }
@@ -68,19 +82,82 @@ class BoardErrorBoundary extends Component<{ readonly children: ReactNode }, { e
     const t = boardStrings()
     return h('div', {
       style: {
-        padding: '14px 16px', fontSize: 12, lineHeight: '19px', color: T.error,
+        padding: '14px 16px', fontSize: 12, lineHeight: '19px', color: T.text,
         background: T.surface, height: '100%', overflow: 'auto', boxSizing: 'border-box',
+      },
+    },
+    h('div', {
+      style: {
+        color: T.error,
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', whiteSpace: 'pre-wrap',
       },
-    }, t.renderFailed(`${String(error.message)}\n\n${String(error.stack ?? '')}`))
+    }, t.renderFailed(String(error.message))),
+    h(PlainNote, { sessionId: this.props.sessionId }),
+    h('details', { style: { marginTop: 10 } },
+      h('summary', { style: { cursor: 'pointer', color: T.dim } }, t.renderFailedDetail),
+      h('pre', {
+        style: {
+          margin: '6px 0 0', whiteSpace: 'pre-wrap', color: T.dim,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+        },
+      }, String(error.stack ?? ''))))
   }
+}
+
+/**
+ * The board's degraded face: the note as plain Markdown.
+ *
+ * A render crash must not cost the human the thing they opened the tab for. The
+ * boundary used to print a stack trace and nothing else, which turns "the KaTeX
+ * renderer threw" into "this session has no note" — the same silent-failure
+ * shape the board exists to remove. This reads the same route and prints the raw
+ * text, so the definitions stay readable while the rich renderer is broken; the
+ * stack is kept below it, collapsed.
+ */
+function PlainNote(props: { readonly sessionId?: string }) {
+  const t = useBoardStrings()
+  const [note, setNote] = useState<LedgerPayload | null>(null)
+  const [failed, setFailed] = useState('')
+  useEffect(() => {
+    const sessionId = props.sessionId
+    if (sessionId === undefined) return
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const payload = await getJson<LedgerPayload>(
+          `${ROUTE_LEDGER}?sessionId=${encodeURIComponent(sessionId)}`,
+          controller.signal,
+        )
+        setNote(payload)
+        setFailed('')
+      } catch (cause) {
+        // A failure of the fallback itself is reported rather than swallowed:
+        // "the fallback failed too" is the one thing nobody should have to guess.
+        setNote(null)
+        setFailed(cause instanceof Error ? cause.message : String(cause))
+      }
+    })()
+    return () => { controller.abort() }
+  }, [props.sessionId])
+  if (props.sessionId === undefined) return null
+  if (failed !== '') return h('div', { style: { marginTop: 10, color: T.dim } }, t.plainFallbackFailed(failed))
+  if (note === null) return h('div', { style: { marginTop: 10, color: T.dim } }, t.loading)
+  if (!note.exists) return h('div', { style: { marginTop: 10, color: T.dim } }, t.noteMissing)
+  return h('div', { style: { marginTop: 10 } },
+    h('div', { style: { color: T.dim } }, t.plainFallbackNote(note.ref.title === '' ? note.ref.path : note.ref.title)),
+    h('pre', {
+      style: {
+        margin: '8px 0 0', whiteSpace: 'pre-wrap', color: T.text,
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12,
+      },
+    }, note.text))
 }
 
 /** How often the view re-reads its sources, in milliseconds. */
 const POLL_MS = 5000
 
 /** Which pane is showing. */
-type Segment = 'catalog' | 'ledger' | 'audit'
+type Segment = 'catalog' | 'ledger' | 'logs' | 'audit'
 
 /**
  * Something went wrong, stored as a **cause** rather than as text.
@@ -139,7 +216,16 @@ function sourceLabel(ref: LedgerRef, t: BoardStrings): { text: string, color: st
   switch (ref.source) {
     case 'attached': return { text: t.sourceAttached, color: T.accent }
     case 'discovered': return { text: t.sourceDiscovered, color: T.dim }
-    case 'off': return { text: t.sourceOff, color: T.warn }
+    case 'off': return {
+      // Name what the switch overrides, so "关闭" is a decision the human can
+      // check rather than a state they have to remember.
+      text: ref.underlying === 'attached'
+        ? t.sourceOffUnder(t.sourceAttached)
+        : ref.underlying === 'discovered'
+          ? t.sourceOffUnder(t.sourceDiscovered)
+          : t.sourceOff,
+      color: T.warn,
+    }
     default: return { text: t.sourceNone, color: T.warn }
   }
 }
@@ -183,29 +269,7 @@ function Segment(props: {
     : null)
 }
 
-/** A small outlined button. */
-function Button(props: {
-  readonly label: string
-  readonly title?: string
-  readonly onClick: () => void
-  readonly tone?: 'plain' | 'accent'
-}) {
-  return h('button', {
-    type: 'button',
-    title: props.title ?? props.label,
-    onClick: props.onClick,
-    style: {
-      appearance: 'none',
-      border: `1px solid ${props.tone === 'accent' ? T.accent : T.borderStrong}`,
-      borderRadius: 6,
-      background: 'transparent',
-      color: props.tone === 'accent' ? T.accent : T.dim,
-      cursor: 'pointer',
-      fontSize: 12,
-      padding: '4px 11px',
-    },
-  }, props.label)
-}
+/** A small outlined button lives in `./controls.tsx`, shared with the composer entry. */
 
 /**
  * The header: which note this session is bound to, and how that was decided.
@@ -249,9 +313,10 @@ function BindingBar(props: {
   ref.source === 'none'
     ? h('span', { style: { color: T.warn, fontWeight: 600 } }, t.unboundTitle)
     : ref.source === 'off'
-      // The note exists (or existed); what changed is whether this session may
-      // read it, so say that rather than showing an empty title.
-      ? h('span', { style: { color: T.warn, fontWeight: 600 } }, t.injectOffState)
+      // Still name the note while the switch hides it: "注入已关闭" on its own
+      // does not say *what* was switched off, and a switch nobody can verify is
+      // the same defect as a binding nobody can see.
+      ? h('span', { style: { color: T.warn, fontWeight: 600 } }, ref.title === '' ? t.injectOffState : '∑ ' + ref.title)
       : h('span', { style: { color: T.text, fontWeight: 600 } }, '∑ ' + ref.title),
   h('span', {
     style: {
@@ -273,38 +338,49 @@ function BindingBar(props: {
     ref.source === 'off'
       ? h(Button, { label: t.injectOn, title: t.injectOnTitle, onClick: props.onInjectionOn })
       : h(Button, { label: t.injectOff, title: t.injectOffTitle, onClick: props.onInjectionOff }),
-    ref.source === 'attached'
+    ref.source === 'attached' || ref.underlying === 'attached'
       ? h(Button, { label: t.detach, title: t.detachTitle, onClick: props.onDetach })
       : null))
 }
 
-/**
- * The line that answers "is what I am reading the same thing the model gets?".
- *
- * The board shows the whole file; the injector sends only the first
- * `injectBudget` characters each turn. When the file outgrows that, the two
- * silently diverge — so say it here rather than let the human assume.
- */
-function AbsorptionLine(props: { readonly ledger: LedgerPayload | null }) {
+/** Host-computed next-assembly policy: never claim a model has received or used it. */
+export function AbsorptionLine(props: { readonly ledger: LedgerPayload | null }) {
   const t = useBoardStrings()
   const ledger = props.ledger
   if (ledger === null || !ledger.exists) return null
-  const chars = ledger.text.length
-  const over = chars > ledger.injectBudget
+  // With the switch off nothing is assembled from this note, so the plan below
+  // would describe a delivery that is not going to happen — and a number under
+  // "常驻正文" reads as "this was injected". Say what is true instead.
+  if (ledger.ref.source === 'off') {
+    return h('div', {
+      style: {
+        fontSize: 11, lineHeight: '18px', padding: '6px 10px', marginBottom: 8, borderRadius: 6,
+        background: T.panel, border: `1px solid ${T.warn}`, color: T.warn,
+      },
+    }, t.offStillReadable)
+  }
+  const plan = ledger.injection
+  const warning = ledger.truncated || plan?.blocked || plan?.overBudget
   return h('div', {
     style: {
-      display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, lineHeight: '16px',
-      padding: '6px 10px', marginBottom: 8, borderRadius: 6,
-      background: T.panel, border: `1px solid ${over ? T.warn : T.border}`,
-      color: over ? T.warn : T.dim,
+      fontSize: 11, lineHeight: '18px', padding: '6px 10px', marginBottom: 8, borderRadius: 6,
+      background: T.panel, border: `1px solid ${warning ? T.warn : T.border}`,
+      color: warning ? T.warn : T.dim,
     },
   },
-  h('span', { style: { flex: 'none' } }, over ? '⚠' : '✓'),
-  h('span', null, over
-    ? t.absorbOver(chars, ledger.injectBudget)
-    : t.absorbOk(chars, ledger.injectBudget)),
-  h('span', { style: { marginLeft: 'auto', flex: 'none', color: T.dim } },
-    over ? t.absorbOverHint : t.absorbOkHint))
+  ledger.truncated || plan?.blocked
+    ? t.readTruncated
+    : plan === undefined
+      ? t.injectionUnknown
+      : h('div', null,
+          h('div', null, plan.overBudget ? t.absorbOver(plan.residentChars, plan.budget) : t.absorbOk(plan.residentChars, plan.budget)),
+          h('div', null, t.injectionScope(plan.pinnedIds.length, plan.onDemandIds.length, plan.logIds.length)),
+          h('div', null, plan.overBudget ? t.absorbOverHint : t.absorbOkHint)),
+  ledger.injectionPreview !== undefined && ledger.injectionPreview !== ''
+    ? h('details', { style: { marginTop: 6 } },
+        h('summary', { style: { cursor: 'pointer' } }, t.injectionPreview),
+        h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 360, overflowY: 'auto' } }, ledger.injectionPreview))
+    : null)
 }
 
 /** One collapsed-by-default audit verdict. */
@@ -453,12 +529,16 @@ function Board({ sessionId }: NoteBoardViewProps) {
   }, [sid, load])
 
   const ref = ledger?.ref ?? null
-  const unbound = ref !== null && (ref.source === 'none' || ref.source === 'off')
+  // `'off'` is deliberately NOT unbound: the switch hides the note from the
+  // model, not from the person reviewing their own derivations. Treating it as
+  // unbound used to blank the pane, so switching injection off looked like the
+  // note had disappeared — which is why "关闭" felt like a destructive action.
+  const unbound = ref !== null && ref.source === 'none'
   const verdicts = audits?.files ?? []
   const pending = verdicts.filter(file => !file.consumed).length
 
   /** The note pane, which is also what an unbound session shows behind a hint. */
-  const ledgerPane = () => {
+  const ledgerPane = (logs = false) => {
     if (unbound) {
       return h('div', { style: { color: T.dim, fontSize: 13, padding: '12px 2px', lineHeight: '22px' } },
         t.unboundHintLead,
@@ -478,9 +558,14 @@ function Board({ sessionId }: NoteBoardViewProps) {
     if (!ledger.exists) {
       return h('div', { style: { color: T.dim, fontSize: 13, padding: '12px 2px' } }, t.noteMissing)
     }
+    const text = logs ? (ledger.runLogsText ?? '') : (ledger.knowledgeText ?? ledger.text)
     return h('div', null,
       h(AbsorptionLine, { ledger }),
-      h(MarkdownText, { text: ledger.text, labels: markdownLabels(t) }))
+      h(BudgetDetails, { ledger }),
+      h('p', { style: { color: T.dim, fontSize: 12, lineHeight: '20px' } }, logs ? t.logsHint : t.knowledgeHint),
+      logs && text === ''
+        ? h('p', { style: { color: T.dim, fontSize: 13, lineHeight: '22px' } }, t.logsEmpty)
+        : h(MarkdownText, { text, labels: markdownLabels(t) }))
   }
 
   const auditPane = () => (unbound
@@ -539,6 +624,12 @@ function Board({ sessionId }: NoteBoardViewProps) {
     onClick: () => setSegment('ledger'),
   }),
   h(Segment, {
+    label: t.segmentLogs,
+    active: segment === 'logs',
+    badge: ledger?.injection?.logIds.length ? String(ledger.injection.logIds.length) : '',
+    onClick: () => setSegment('logs'),
+  }),
+  h(Segment, {
     label: t.segmentAudit,
     active: segment === 'audit',
     badge: verdicts.length > 0 ? String(verdicts.length) : '',
@@ -587,7 +678,7 @@ function Board({ sessionId }: NoteBoardViewProps) {
           attachProblem !== null
             ? h('div', { style: { color: T.error, fontSize: 12, padding: '0 2px 10px' } }, problemText(attachProblem, t))
             : null,
-          segment === 'ledger' ? ledgerPane() : auditPane()),
+          segment === 'ledger' ? ledgerPane() : segment === 'logs' ? ledgerPane(true) : auditPane()),
     at > 0
       ? h('div', { style: { fontSize: 11, color: T.dim, marginTop: 12, textAlign: 'right' } }, t.refreshedAt(clock(at, t.dateLocale)))
       : null,
@@ -603,5 +694,5 @@ function Board({ sessionId }: NoteBoardViewProps) {
  * @returns the board, or a readable render error instead of a blank panel.
  */
 export function NoteBoardView(props: NoteBoardViewProps) {
-  return h(BoardErrorBoundary, null, h(Board, props))
+  return h(BoardErrorBoundary, { sessionId: props.sessionId }, h(Board, props))
 }

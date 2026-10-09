@@ -32,12 +32,82 @@ export type LedgerSource = 'attached' | 'discovered' | 'none' | 'off'
  */
 export interface LedgerRef {
   readonly source: LedgerSource
-  /** Absolute path, or `''` when `source` is `'none'`. */
+  /**
+   * Absolute path, or `''` when nothing was found.
+   *
+   * Non-empty for `'off'` when the switch overrides a real binding: whoever
+   * switched injection off still has to see *what* they switched off, and a
+   * switch that names nothing is a switch nobody can check.
+   */
   readonly path: string
   /** Short human label: the owning project's name. */
   readonly title: string
   /** For `'discovered'`: the ancestor directory the ledger was found under. */
   readonly root?: string
+  /**
+   * For `'off'`: the binding the switch is overriding.
+   *
+   * `'none'` means there was nothing to switch off — the opt-out is recorded,
+   * but it hides nothing right now. Distinguishing the two keeps the board from
+   * reporting a binding for a session that never had one.
+   */
+  readonly underlying?: 'attached' | 'discovered' | 'none'
+}
+
+/**
+ * The binding state alone, without the note's text.
+ *
+ * The composer entry is polled while a conversation sits idle, so it must not
+ * ask for the note: a twenty-kilobyte body every few seconds to render one chip
+ * would make the cost of leaving a session open depend on the note's size. The
+ * board's own `/ledger` route still serves the text; this route exists for the
+ * caller that only needs to know *which* note and *whether it is injected*.
+ */
+export interface StatePayload {
+  /** Which note, and how it was chosen — including what an `'off'` switch hides. */
+  readonly ref: LedgerRef
+  /** `true` when the bound file exists right now. */
+  readonly exists: boolean
+  /** The raw per-session switch, before resolution folds it into `'off'`. */
+  readonly enabled: boolean
+}
+
+/**
+ * What a knowledge section looks like beyond its size.
+ *
+ * `'episodic'` means the body reads like a record of a *run* rather than a
+ * definition — see `host/hygiene.ts` for the calibrated rule. It is a signal for
+ * a human, not a verdict, and the board moves nothing on its own.
+ */
+export type SectionSmell = 'episodic'
+
+/** One section as the budget view lists it. */
+export interface LedgerSectionRow {
+  readonly id: string
+  /** Which rule caught it: resident, on-demand index, or a run log (never injected). */
+  readonly cls: 'resident' | 'onDemand' | 'log'
+  /** Heading length plus body, in UTF-16 code units — the unit the budget uses. */
+  readonly chars: number
+  /**
+   * `true` when this section differs from the last **injected** baseline.
+   *
+   * A section that keeps appearing here is the signature of a note being used as
+   * a log: process notes change every session, frozen definitions do not. The
+   * hashes are the same ones `[LEDGER DELTA]` compares, so the view and the
+   * notice cannot disagree.
+   */
+  readonly changed: boolean
+  /**
+   * Set when the body reads like a run record rather than a definition.
+   *
+   * These are the entries that quietly become constraints on later work — a
+   * device fault or a dead-end algorithm from one session must not bound the
+   * next one. Never set for run-log sections: a log is where such records
+   * belong, so flagging them would invert the advice.
+   */
+  readonly smell?: SectionSmell
+  /** The words that triggered {@link smell}: shown to a human, never parsed. */
+  readonly markers?: readonly string[]
 }
 
 /** The bound ledger's contents, as the board renders them. */
@@ -54,12 +124,25 @@ export interface LedgerPayload {
   /** `true` when the file was larger than the configured display cap. */
   readonly truncated: boolean
   /**
-   * How many characters this plugin actually injects into the conversation each
-   * turn. The board compares the file against this so the human can see, without
-   * guessing, whether what they are looking at is the same set of definitions
-   * the model is being handed.
+   * Soft target for resident knowledge. Not actual delivery size: the preamble,
+   * whole pinned sections and index are described by `injection`/preview.
+   * Kept for compatibility with older clients.
    */
   readonly injectBudget: number
+  /** Host-computed policy and preview, not evidence of delivery or model use. */
+  readonly injection?: import('./sections.ts').InjectionPlan
+  /**
+   * Per-section sizes and what moved since the last injected baseline.
+   *
+   * Absent when the file could not be read. `baselineAt === null` means this
+   * session has no baseline yet (nothing was injected), so every `changed` is
+   * `false` by construction rather than by observation.
+   */
+  readonly sections?: readonly LedgerSectionRow[]
+  readonly baselineAt?: number | null
+  readonly injectionPreview?: string
+  readonly knowledgeText?: string
+  readonly runLogsText?: string
 }
 
 /** One adversarial-audit verdict file from the writer's inbox. */

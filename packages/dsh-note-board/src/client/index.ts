@@ -21,7 +21,8 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { NoteBoardView } from './Body.tsx'
-import { BOARD_VIEW_ID, BOARD_VIEW_ORDER } from './definition.ts'
+import { BOARD_VIEW_ID, BOARD_VIEW_ORDER, INJECTION_DOCK_ID, INJECTION_DOCK_ORDER } from './definition.ts'
+import { InjectionBar } from './InjectionBar.tsx'
 import { boardStrings, installBoardLocale } from './i18n.ts'
 
 export type { LedgerPayload, AuditsPayload, AuditFile } from '../shared.ts'
@@ -51,5 +52,17 @@ export function apply(ctx: ClientContext): void {
       label: () => boardStrings().view,
     }, NoteBoardView)),
     '@suxeca/dsh-note-board: conversation view',
+  )
+
+  // The earliest entry this plugin can own: the strip above the composer exists
+  // on a blank session, before the board's tab does, so the injection decision
+  // is available at the moment it is actually made.
+  ctx.effect(
+    () => ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+      name: 'conversation.input.dock',
+      id: INJECTION_DOCK_ID,
+      order: INJECTION_DOCK_ORDER,
+    }, InjectionBar)),
+    '@suxeca/dsh-note-board: composer entry',
   )
 }

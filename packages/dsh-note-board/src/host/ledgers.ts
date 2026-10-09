@@ -78,12 +78,24 @@ export type LedgerSource = 'attached' | 'discovered' | 'none' | 'off'
 export interface LedgerRef {
   /** How this answer was reached — surfaced in the UI so the binding is never invisible. */
   readonly source: LedgerSource
-  /** Absolute path, or `''` when `source` is `'none'`. */
+  /**
+   * Absolute path, or `''` when nothing was found.
+   *
+   * Non-empty for `'off'` when the switch overrides a real binding, so the
+   * human can see what they switched off. Injection never reads it: it returns
+   * on the source. `writableRef` strips it for companions, which must not start
+   * writing into a note this session was told not to read.
+   */
   readonly path: string
   /** Short human label: the owning directory's name. */
   readonly title: string
   /** For `'discovered'`: the ancestor directory the ledger was found under. */
   readonly root?: string
+  /**
+   * For `'off'`: the binding the switch is overriding; `'none'` when the opt-out
+   * currently hides nothing.
+   */
+  readonly underlying?: 'attached' | 'discovered' | 'none'
 }
 
 /** The ledger that a session is explicitly pointed at. */
@@ -124,8 +136,16 @@ export interface LedgerDeps {
 /** A ledger with no session binding — returned instead of throwing. */
 const NONE: LedgerRef = { source: 'none', path: '', title: '' }
 
-/** The explicit opt-out: this session keeps its note, but injects nothing. */
-const OFF: LedgerRef = { source: 'off', path: '', title: '' }
+/**
+ * The explicit opt-out: this session keeps its note, but injects nothing.
+ *
+ * The path is filled in by {@link resolveLedger} when the switch is actually
+ * hiding something, so the UI can name it. Injection does not read the path of
+ * an `'off'` ref — {@link import('./inject.ts')} returns early on the source —
+ * so carrying it changes what the human can see and nothing about what the
+ * model receives.
+ */
+const OFF: LedgerRef = { source: 'off', path: '', title: '', underlying: 'none' }
 
 /** Bound on how many opt-outs one registry remembers. */
 export const MAX_OFF_SESSIONS = 256
@@ -267,14 +287,39 @@ export async function writeRegistry(registryPath: string, registry: BoardRegistr
  * Decide which ledger a session uses.
  * @param deps - session cwd lookup and registry location.
  * @param sessionId - the session asking.
+ * @param options - `ignoreOff` resolves the binding the switch is overriding, so
+ *   a switched-off session can still be told what it switched off. Injection
+ *   never passes it.
  * @returns the resolved reference; `source: 'none'` when there is no ledger.
  */
-export async function resolveLedger(deps: LedgerDeps, sessionId: string): Promise<LedgerRef> {
+export async function resolveLedger(
+  deps: LedgerDeps,
+  sessionId: string,
+  options?: { readonly ignoreOff?: boolean },
+): Promise<LedgerRef> {
   const registry = await readRegistry(deps.registryPath)
   // The opt-out is checked first, and beats both an attachment and discovery:
   // otherwise "关闭" would be undone by the next assembly re-discovering the
   // very note the human just switched off.
-  if (registry.off.includes(sessionId)) return OFF
+  if (registry.off.includes(sessionId) && options?.ignoreOff !== true) {
+    // Resolve what the switch is hiding, but keep `source: 'off'` so every
+    // consumer that gates on the source (injection, the on-demand reader) is
+    // unaffected. A switched-off session that cannot name its note is a switch
+    // the human has no way to verify.
+    const hidden = await resolveLedger(deps, sessionId, { ignoreOff: true })
+    // `'off'` cannot come back from the recursive call, but the type still
+    // admits it: excluding it here is what narrows `underlying` to a real
+    // binding rather than a second switch.
+    return hidden.source === 'none' || hidden.source === 'off'
+      ? OFF
+      : {
+          source: 'off',
+          path: hidden.path,
+          title: hidden.title,
+          underlying: hidden.source,
+          ...(hidden.root !== undefined ? { root: hidden.root } : {}),
+        }
+  }
   const attached = registry.sessions[sessionId]
   if (typeof attached === 'string' && attached !== '' && existsSync(attached)) {
     return { source: 'attached', path: attached, title: ledgerTitle(attached) }
@@ -289,6 +334,21 @@ export async function resolveLedger(deps: LedgerDeps, sessionId: string): Promis
     if (found !== null) return { source: 'discovered', path: found.path, title: ledgerTitle(found.path), root: found.root }
   }
   return NONE
+}
+
+/**
+ * The companion-writer view of a resolution.
+ *
+ * `resolveLedger` now names what an `'off'` switch is hiding, because the UI has
+ * to be able to show it. A writer must not inherit that: a session that was told
+ * not to read a note must not silently start writing *into* it, and before this
+ * the empty path was what refused it. Injection itself is already unaffected —
+ * it returns on the source, not on the path.
+ * @param ref - a resolved reference.
+ * @returns the same reference, with an `'off'` payload stripped.
+ */
+export function writableRef(ref: LedgerRef): LedgerRef {
+  return ref.source === 'off' ? { source: 'off', path: '', title: '', underlying: ref.underlying } : ref
 }
 
 /**

@@ -56,6 +56,7 @@ function shippedSources(): Array<{ path: string, text: string }> {
     ...readdirSync(hostDir).map(name => join(hostDir, name)),
     join(import.meta.dirname, '../src/index.ts'),
     join(import.meta.dirname, '../src/shared.ts'),
+    join(import.meta.dirname, '../src/sections.ts'),
     join(import.meta.dirname, '../src/shared-routes.ts'),
   ].filter(path => path.endsWith('.ts') || path.endsWith('.tsx'))
   return files.map(path => ({ path, text: readFileSync(path, 'utf8') }))

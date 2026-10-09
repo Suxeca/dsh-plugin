@@ -22,3 +22,22 @@ export const BOARD_VIEW_ID = 'note-board'
  * reordered.
  */
 export const BOARD_VIEW_ORDER = 20
+
+/**
+ * This package's id in the `conversation.input.dock` seat.
+ *
+ * Deliberately not `note-board`: a fresh id is added *beside* the shipped docks,
+ * while reusing a shipped id would replace that occupant's cell. The seat holds
+ * the todo strip, the goal bar and the queue, and this entry is a peer of those,
+ * not a replacement for one.
+ */
+export const INJECTION_DOCK_ID = 'note-board-injection'
+
+/**
+ * Where the entry lands in that strip.
+ *
+ * Above the task-shaped docks (todo 0, goal 10, queue 20) because it answers a
+ * question that comes earlier in a session than any of them: whether this
+ * conversation reads the note at all.
+ */
+export const INJECTION_DOCK_ORDER = -10

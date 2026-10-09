@@ -27,10 +27,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
+import { createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import {
   MAX_FINGERPRINTS, MAX_STORE_CHARS, fingerprintPathFor, readFingerprints, rememberFingerprint, writeFingerprints,
 } from '../src/host/fingerprints.ts'
-import { INJECTION_PLUGIN, S_LEDGER, registerLedgerInjection } from '../src/host/inject.ts'
+import { INJECTION_PLUGIN, S_LEDGER, injectionOffNotice, registerLedgerInjection } from '../src/host/inject.ts'
 import { attachLedger } from '../src/host/ledgers.ts'
 
 /** The ledger shape the whole feature is about: numbered, named sections. */
@@ -79,109 +80,92 @@ interface Section { readonly name: string, readonly text: string }
  * `mount()` sharing the same `registryPath` **is** a process restart — the only
  * state that crosses is the file.
  */
-function mount(placement?: 'first' | 'last', delivery?: 'section' | 'snapshot'): {
-  turn: (sessionId: string) => Promise<readonly Section[]>
-  /** Fire the session-start extension point the way the loop does. */
-  start: (sessionId: string) => Promise<void>
-  /** Context-injection messages this mount queued, in order. */
-  readonly notices: readonly InjectedNotice[]
-  /** Everything the session's surface currently retains, oldest first. */
-  readonly surface: readonly InjectedNotice[]
-  /** Drop the retained surface, the way compaction does. */
-  compact: () => void
-} {
-  const byEvent = new Map<string, ((...args: never[]) => unknown)[]>()
+interface StepOptions {
+  reject?: boolean
+  empty?: boolean
+  aborted?: boolean
+  commit?: boolean
+  human?: string | null
+  step?: number
+  afterAssemble?: () => Promise<void>
+}
+
+function mount(placement?: 'first' | 'last', delivery?: 'section' | 'snapshot', options: { readBudget?: number, pinnedSections?: readonly string[], runLogSections?: readonly string[] } = {}) {
+  const byEvent = new Map<string, ((...args: any[]) => any)[]>()
   const ctx = {
-    on: (event: string, listener: (...args: never[]) => unknown) => {
+    on: (event: string, listener: (...args: any[]) => any) => {
       const list = byEvent.get(event) ?? []
       list.push(listener)
       byEvent.set(event, list)
-      return () => {}
+      return () => { byEvent.set(event, (byEvent.get(event) ?? []).filter(item => item !== listener)) }
     },
   } as unknown as Context
   const notices: InjectedNotice[] = []
-  /**
-   * Pending inbox items, and what the surface retains.
-   *
-   * The loop claims the inbox *before* it assembles each step
-   * (`agent-loop/src/agent.ts`), so the harness claims first too: a message
-   * queued during one turn is visible from the next one onward. Modelling that
-   * order is the whole point — it is what the delivery trade-off turns on.
-   */
-  const pending: InjectedNotice[] = []
-  const surface: InjectedNotice[] = []
-
+  const surfaces = new Map<string, UserMessage[]>()
+  const pending: UserMessage[] = []
+  let lastId = ''
+  const surfaceFor = (id: string) => {
+    if (!surfaces.has(id)) surfaces.set(id, [])
+    return surfaces.get(id)!
+  }
   const agentFor = (id: string): unknown => ({
     session: {
-      id,
-      header: { cwd: project },
-      surface: { nodes: surface.map((_, index) => index) },
-      eventAt: (seq: number) => (surface[seq] === undefined
-        ? undefined
-        : { type: 'user/message', data: surface[seq] }),
+      id, header: { cwd: project },
+      surface: { nodes: surfaceFor(id).map((_, index) => index) },
+      eventAt: (seq: number) => surfaceFor(id)[seq] === undefined ? undefined : { type: 'user/message', data: surfaceFor(id)[seq] },
     },
-    inbox: {
-      get nextStep(): readonly InjectedNotice[] { return pending },
-      prepend: (_target: string, message: InjectedNotice) => {
-        notices.push(message)
-        pending.push(message)
-      },
-    },
-    // `inject` queues to the same pending list the loop claims from, so both
-    // channels are modelled the way the loop actually treats them.
-    inject: (message: InjectedNotice) => {
-      notices.push(message)
-      pending.push(message)
-    },
+    inbox: { get nextStep() { return pending }, prepend: (_target: string, message: UserMessage) => { pending.push(message) } },
+    inject: (message: UserMessage) => { pending.push(message) },
   })
-
-  registerLedgerInjection(ctx, {
-    cwdOf: () => project,
-    registryPath,
-    injectBudget: 6000,
-    pinnedSections: ['FROZEN*', 'RULES', 'VERDICT*'],
-    // The injection read is bounded like every other read; the fixtures are tiny.
-    readBudget: 262144,
-    placement,
-    delivery,
+  const dispose = registerLedgerInjection(ctx, {
+    cwdOf: () => project, registryPath, injectBudget: 6000,
+    pinnedSections: options.pinnedSections ?? ['FROZEN*', 'RULES', 'VERDICT*'],
+    runLogSections: options.runLogSections, readBudget: options.readBudget ?? 262144,
+    placement, delivery,
   })
+  const step = async (id: string, settings: StepOptions = {}) => {
+    lastId = id
+    // Real ordering: claim → assemble → awaited pre-step → commit → model.
+    const claimed = pending.splice(0, pending.length)
+    if (settings.human !== null) claimed.push(createUserMessage({
+      content: [{ type: 'text', text: settings.human ?? 'CURRENT-QUESTION' }], source: { kind: 'user' },
+    }))
+    const agent = agentFor(id)
+    const assembly = byEvent.get('system-prompt/assemble')?.[0]
+    if (!assembly) throw new Error('assembly listener missing')
+    const assembled = await assembly(null, { agent }, async () => ({ sections: [{ name: 'persona', text: 'PERSONA' }] }))
+    await settings.afterAssemble?.()
+    const controller = new AbortController()
+    if (settings.aborted) controller.abort()
+    const handler = byEvent.get('agent/pre-step')?.[0]
+    if (!handler) throw new Error('pre-step listener missing')
+    const decision = await handler({ agent, messages: claimed, turn: 1, step: settings.step ?? 1, signal: controller.signal }, async () => (
+      settings.reject ? { kind: 'reject' } : { kind: 'enter', messages: settings.empty ? [] : claimed, startsRequestSeries: true }
+    ))
+    if (decision.kind === 'enter' && settings.commit !== false && !settings.aborted) {
+      for (const message of decision.messages as UserMessage[]) {
+        surfaceFor(id).push(message)
+        if ((message.source?.kind === INJECTION_PLUGIN || (message.source?.kind === 'plugin' && message.source.plugin === INJECTION_PLUGIN))) notices.push(message as InjectedNotice)
+        // The runtime emits synchronously; waiting here only drains the plugin's
+        // async persistence callback before tests assert its on-disk baseline.
+        for (const listener of byEvent.get('session/event') ?? []) await listener({ id }, { type: 'user/message', data: message })
+      }
+    }
+    return { sections: assembled.sections as readonly Section[], decision, pendingCount: pending.length }
+  }
   return {
     notices,
-    surface,
-    compact: (): void => { surface.length = 0 },
-    start: async (id: string): Promise<void> => {
-      for (const listener of byEvent.get('agent/session-start') ?? []) listener({ agent: agentFor(id) })
-      // The extension point is a synchronous emit, so the delivery it kicks off
-      // is fire-and-forget; wait for the read behind it instead of guessing.
-      const deadline = Date.now() + 1000
-      while (notices.length === 0 && Date.now() < deadline) {
-        await new Promise(resolve => setTimeout(resolve, 5))
-      }
+    get surface() { return surfaceFor(lastId) },
+    compact: () => { surfaceFor(lastId).length = 0 },
+    seed: (message: UserMessage) => { pending.push(message) },
+    start: async (id: string) => {
+      for (const listener of byEvent.get('agent/session-start') ?? []) await listener({ agent: agentFor(id) })
     },
-    turn: async (id: string): Promise<readonly Section[]> => {
-      // The loop's real order, which is what makes this interesting: the inbox
-      // is claimed *before* assembly, and the claimed message is committed to
-      // the surface only *after* it. So during this assembly the previous
-      // turn's body is neither pending nor visible — the window in which a
-      // naive presence check queues a duplicate.
-      const claimed = pending.splice(0, pending.length)
-      const listener = (byEvent.get('system-prompt/assemble') ?? [])[0]
-      if (listener === undefined) throw new Error('injection did not register a listener')
-      const assembled = await listener(
-        null,
-        { agent: agentFor(id) },
-        async () => ({ sections: [{ name: 'persona', text: 'PERSONA' }] }),
-      ) as { sections: readonly Section[] }
-      surface.push(...claimed)
-      // The loop commits the claimed messages after the assembly, and the
-      // session announces each commit.
-      for (const message of claimed) {
-        for (const listener of byEvent.get('session/event') ?? []) {
-          listener({ id }, { type: 'user/message', data: message })
-        }
-      }
-      return assembled.sections
+    finish: async (id: string) => {
+      for (const listener of byEvent.get('session/event') ?? []) await listener({ id }, { type: 'turn/end', data: {} })
     },
+    turn: async (id: string) => (await step(id)).sections,
+    step, dispose,
   }
 }
 
@@ -225,12 +209,38 @@ describe('the delta baseline survives a restart', () => {
     expect(process.notices).toHaveLength(1)
     expect(noticeText(process)).toContain('FROZEN-1')
     // The row the UI renders is labelled from the durable source.
-    expect(process.notices[0]?.source).toMatchObject({ kind: 'plugin', plugin: INJECTION_PLUGIN, form: 'notice' })
+    expect(process.notices[0]?.source).toMatchObject({ kind: INJECTION_PLUGIN, plugin: INJECTION_PLUGIN, form: 'notice' })
     expect(process.notices[0]?.source.summary).toContain('FROZEN-1')
   })
 
-  it('announces a change made while DSH was down, on the resumed first turn', async () => {
-    // Process A reads the ledger, then "DSH stops".
+  it('warns the writer when the changed section reads like one run record', async () => {
+    // The content-boundary rule has to reach the *writer* at the moment of
+    // writing; by the time the board shows a flag, the entry is already being
+    // injected as knowledge on every later turn.
+    const process = mount()
+    writeFileSync(ledger, '# Ledger\n\n## FROZEN-1 · frozen\n\n原始定义。\n', 'utf8')
+    await process.turn('session-smell')
+    writeFileSync(ledger, '# Ledger\n\n## FROZEN-1 · frozen\n\n'
+      + '本次跑了 K=32 的作业，提交后发现显存不够、报错内存墙；后来试了另一种写法仍然走不通，实测失败三次。\n', 'utf8')
+    await process.turn('session-smell')
+    const text = noticeText(process) ?? ''
+    expect(text).toContain('内容边界')
+    expect(text).toContain('RUN-LOG')
+    expect(text).toContain('FROZEN-1')
+  })
+
+  it('stays quiet about the boundary when the changed section is a definition', async () => {
+    const process = mount()
+    writeFileSync(ledger, '# Ledger\n\n## FROZEN-1 · frozen\n\n旧定义。\n', 'utf8')
+    await process.turn('session-clean')
+    writeFileSync(ledger, '# Ledger\n\n## FROZEN-1 · frozen\n\n新定义：$\\Phi_{\\rm raw}$ 的两分量写法。\n', 'utf8')
+    await process.turn('session-clean')
+    const text = noticeText(process) ?? ''
+    expect(text).toContain('被替换：FROZEN-1')
+    expect(text).not.toContain('内容边界')
+  })
+
+  it('announces a change made while DSH was down, on the resumed first turn', async () => {    // Process A reads the ledger, then "DSH stops".
     await mount().turn('session-resumed')
     // The human edits the ledger with no DSH running.
     writeFileSync(ledger, ledgerText('BODY-EDITED-WHILE-DOWN'), 'utf8')
@@ -411,27 +421,26 @@ describe('snapshot delivery moves the body off the system prompt', () => {
     const mounted = mount(undefined, 'snapshot')
     await mounted.turn('session-snapshot')
     const queued = mounted.notices.at(-1)
-    expect(queued?.source).toMatchObject({ kind: 'plugin', plugin: INJECTION_PLUGIN, form: 'snapshot' })
+    expect(queued?.source).toMatchObject({ kind: INJECTION_PLUGIN, plugin: INJECTION_PLUGIN, form: 'snapshot' })
     expect(queued?.source.sections?.[0]?.name).toBe(S_LEDGER)
   })
 
-  it('does not re-queue a body that is still in flight', async () => {
-    // Turn 2 assembles while turn 1's copy has been claimed but not yet
-    // committed, so the surface cannot show it. Queuing again here is exactly
-    // how a change used to cost two copies of the body instead of one.
+  it('does not repeat the current retained body on the next step', async () => {
+    // The first step now commits its snapshot immediately; the next step must
+    // reuse that retained version rather than enqueueing another copy.
     const mounted = mount(undefined, 'snapshot')
     await mounted.turn('session-stable-snapshot')
     const afterFirst = mounted.notices.length
-    // The next turn is where the loop claims what the first one queued.
+    // No plugin message should be queued for that next turn.
     await mounted.turn('session-stable-snapshot')
-    expect(mounted.surface).toHaveLength(1)
+    expect(mounted.surface.filter(message => (message.source?.kind === INJECTION_PLUGIN || (message.source?.kind === 'plugin' && message.source.plugin === INJECTION_PLUGIN)))).toHaveLength(1)
     expect(mounted.notices.length).toBe(afterFirst)
   })
 
   it('re-adds the body after compaction drops it', async () => {
     const mounted = mount(undefined, 'snapshot')
     await mounted.turn('session-compacted')
-    // Claimed on the next turn, then dropped by compaction.
+    // Reuse once, then drop the committed body through compaction.
     await mounted.turn('session-compacted')
     mounted.compact()
     await mounted.turn('session-compacted')
@@ -450,14 +459,165 @@ describe('snapshot delivery moves the body off the system prompt', () => {
     expect(mounted.notices.some(message => message.content[0]?.text.includes('BODY-SNAPSHOT-TWO'))).toBe(true)
   })
 
-  it('primes the inbox at session start, before the first step claims it', async () => {
-    // The loop claims the inbox before assembling, so a body first queued while
-    // assembling would only reach the model one step late — and the first step
-    // of a session is exactly where it has to be.
+  it('delivers on the first awaited step without a fire-and-forget priming race', async () => {
     const mounted = mount(undefined, 'snapshot')
     await mounted.start('session-primed')
-    expect(mounted.notices).toHaveLength(1)
-    expect(mounted.notices[0]?.source.form).toBe('snapshot')
+    expect(mounted.notices).toHaveLength(0)
+    const entered = await mounted.step('session-primed')
+    expect(entered.decision.messages[0].source.form).toBe('snapshot')
+    expect(entered.decision.messages.at(-1).content[0].text).toBe('CURRENT-QUESTION')
+    expect(entered.pendingCount).toBe(0)
+  })
+})
+
+describe('pre-step admission is the snapshot delivery boundary', () => {
+  it('delivers a changed large core and its notice before the question in the SAME step', async () => {
+    const mounted = mount('last', 'snapshot')
+    await mounted.turn('same-step')
+    writeFileSync(ledger, ledgerText('X'.repeat(7300) + 'CORE-TAIL'), 'utf8')
+    const entered = await mounted.step('same-step', { human: 'REPORT-THE-TAIL' })
+    expect(entered.decision.kind).toBe('enter')
+    expect(entered.decision.startsRequestSeries).toBe(true)
+    expect(entered.decision.messages.map((m: UserMessage) => (m.source?.kind === 'plugin' || m.source?.kind === INJECTION_PLUGIN) ? m.source.form : m.source?.kind)).toEqual(['snapshot', 'notice', 'user'])
+    expect(entered.decision.messages[0].content[0].text).toContain('CORE-TAIL')
+    expect(entered.decision.messages.at(-1).content[0].text).toBe('REPORT-THE-TAIL')
+    expect(entered.pendingCount).toBe(0)
+  })
+
+  it('reads snapshot data after assembly, so an edit before pre-step is visible immediately', async () => {
+    const mounted = mount('last', 'snapshot')
+    const entered = await mounted.step('between-phases', {
+      afterAssemble: async () => { writeFileSync(ledger, ledgerText('BETWEEN-PHASES'), 'utf8') },
+    })
+    expect(entered.decision.messages[0].content[0].text).toContain('BETWEEN-PHASES')
+  })
+
+  it.each([{ reject: true }, { empty: true }, { aborted: true }])('does not resurrect a refused/cancelled/empty step: %j', async settings => {
+    const mounted = mount('last', 'snapshot')
+    await mounted.step('refused', settings)
+    expect(mounted.notices).toHaveLength(0)
+    expect(existsSync(storePath)).toBe(false)
+    const accepted = await mounted.step('refused')
+    expect(accepted.decision.messages[0].source.form).toBe('snapshot')
+  })
+
+  it('does not resurrect a cleared continuation or an empty initial step', async () => {
+    const mounted = mount('last', 'snapshot')
+    expect((await mounted.step('empty', { human: null })).decision.messages).toEqual([])
+    expect((await mounted.step('empty', { empty: true, step: 2 })).decision.messages).toEqual([])
+    expect(mounted.notices).toHaveLength(0)
+    expect(existsSync(storePath)).toBe(false)
+  })
+
+  it('records the baseline only after admission actually commits', async () => {
+    const mounted = mount('last', 'snapshot')
+    await mounted.turn('abandoned')
+    const before = readFileSync(storePath, 'utf8')
+    writeFileSync(ledger, ledgerText('AFTER-ABORT'), 'utf8')
+    const abandoned = await mounted.step('abandoned', { commit: false })
+    expect(abandoned.decision.messages[0].content[0].text).toContain('AFTER-ABORT')
+    expect(readFileSync(storePath, 'utf8')).toBe(before)
+    await mounted.finish('abandoned')
+    const retry = await mounted.step('abandoned')
+    expect(retry.decision.messages[1].source.form).toBe('notice')
+    expect(retry.decision.messages[1].content[0].text).toContain('被替换：FROZEN-1')
+    expect(readFileSync(storePath, 'utf8')).not.toBe(before)
+  })
+
+  it('reuses an uncommitted candidate without mistaking it for a delivered copy', async () => {
+    const mounted = mount('last', 'snapshot')
+    const offered = await mounted.step('candidate', { commit: false })
+    const entered = await mounted.step('candidate')
+    expect(entered.decision.messages[0].id).toBe(offered.decision.messages[0].id)
+    expect(mounted.notices.filter(m => m.source.form === 'snapshot')).toHaveLength(1)
+  })
+
+  it('compares the latest retained version rather than any earlier matching A', async () => {
+    const mounted = mount('last', 'snapshot')
+    await mounted.turn('aba')
+    writeFileSync(ledger, ledgerText('BODY-B'), 'utf8')
+    await mounted.turn('aba')
+    writeFileSync(ledger, ledgerText('BODY-ONE'), 'utf8')
+    const last = await mounted.step('aba')
+    expect(last.decision.messages[0].content[0].text).toContain('BODY-ONE')
+    expect(mounted.notices.filter(m => m.source.form === 'snapshot')).toHaveLength(3)
+  })
+
+  it('replaces a stale claimed legacy snapshot but preserves other producers and the question', async () => {
+    const mounted = mount('last', 'snapshot')
+    mounted.seed(createUserMessage({ content: [{ type: 'text', text: 'STALE-SNAPSHOT' }], source: { kind: 'plugin', plugin: INJECTION_PLUGIN, form: 'snapshot' } }))
+    const foreign = createUserMessage({ content: [{ type: 'text', text: 'OTHER-CONTEXT' }], source: { kind: 'plugin', plugin: 'another-plugin', form: 'snapshot' } })
+    mounted.seed(foreign)
+    const result = await mounted.step('legacy')
+    expect(result.decision.messages).toContain(foreign)
+    expect(JSON.stringify(result.decision.messages)).not.toContain('STALE-SNAPSHOT')
+    expect(result.decision.messages.at(-1).content[0].text).toBe('CURRENT-QUESTION')
+    expect(result.pendingCount).toBe(0)
+  })
+
+  it('puts a fresh snapshot AFTER a queued off notice when re-enabled before the next claim', async () => {
+    const mounted = mount('last', 'snapshot')
+    await mounted.turn('quick-toggle')
+    // Both button actions happened while idle; only the off action queues data.
+    mounted.seed(injectionOffNotice())
+    const entered = await mounted.step('quick-toggle')
+    expect(entered.decision.messages.map((m: UserMessage) => (m.source?.kind === 'plugin' || m.source?.kind === INJECTION_PLUGIN) ? m.source.form : m.source?.kind)).toEqual(['notice', 'snapshot', 'user'])
+    expect(entered.decision.messages[1].content[0].text).toContain('BODY-ONE')
+    const steady = await mounted.step('quick-toggle')
+    expect(steady.decision.messages).toHaveLength(1)
+    expect(mounted.notices.filter(m => m.source.form === 'snapshot')).toHaveLength(2)
+  })
+
+  it('does not let an obsolete queued off notice revoke newly enabled section context', async () => {
+    const mounted = mount('last', 'section')
+    await mounted.turn('section-toggle')
+    mounted.seed(injectionOffNotice())
+    const entered = await mounted.step('section-toggle')
+    expect(entered.sections.find(s => s.name === S_LEDGER)?.text).toContain('BODY-ONE')
+    expect(entered.decision.messages).toHaveLength(1)
+    expect(entered.decision.messages[0].source.kind).toBe('user')
+  })
+
+  it.each(['attached', 'discovered'])('revokes an old snapshot when the %s note disappears and re-delivers on recovery', async binding => {
+    if (binding === 'attached') await attachLedger(registryPath, 'missing', ledger)
+    const mounted = mount('last', 'snapshot')
+    await mounted.turn('missing')
+    const original = readFileSync(ledger, 'utf8')
+    const baseline = readFileSync(storePath, 'utf8')
+    rmSync(ledger)
+    const unavailable = await mounted.step('missing')
+    expect(unavailable.decision.messages[0].source.form).toBe('notice')
+    expect(unavailable.decision.messages[0].content[0].text).toContain('知识库当前不可用')
+    expect(unavailable.decision.messages[0].content[0].text).toContain('已作废')
+    expect(readFileSync(storePath, 'utf8')).toBe(baseline)
+    const stillMissing = await mounted.step('missing')
+    expect(stillMissing.decision.messages).toHaveLength(1)
+    writeFileSync(ledger, original, 'utf8')
+    const recovered = await mounted.step('missing')
+    expect(recovered.decision.messages[0].source.form).toBe('snapshot')
+    expect(recovered.decision.messages[0].content[0].text).toContain('BODY-ONE')
+  })
+
+  it('does not deliver a claimed snapshot after injection was switched off', async () => {
+    const mounted = mount('last', 'snapshot')
+    mounted.seed(createUserMessage({ content: [{ type: 'text', text: 'STALE-SNAPSHOT' }], source: { kind: 'plugin', plugin: INJECTION_PLUGIN, form: 'snapshot' } }))
+    writeFileSync(registryPath, JSON.stringify({ sessions: {}, known: [], off: ['off-before-claim'] }), 'utf8')
+    const result = await mounted.step('off-before-claim')
+    expect(result.decision.messages).toHaveLength(1)
+    expect(result.decision.messages[0].source.kind).toBe('user')
+    expect(mounted.notices).toHaveLength(0)
+  })
+
+  it('re-delivers after an off notice revoked an otherwise matching retained copy', async () => {
+    const mounted = mount('last', 'snapshot')
+    await mounted.turn('off-on')
+    writeFileSync(registryPath, JSON.stringify({ sessions: {}, known: [], off: ['off-on'] }), 'utf8')
+    mounted.seed(injectionOffNotice())
+    await mounted.turn('off-on')
+    writeFileSync(registryPath, JSON.stringify({ sessions: {}, known: [], off: [] }), 'utf8')
+    const enabled = await mounted.step('off-on')
+    expect(enabled.decision.messages[0].source.form).toBe('snapshot')
+    expect(mounted.notices.filter(m => m.source.form === 'snapshot')).toHaveLength(2)
   })
 })
 
@@ -487,6 +647,26 @@ describe('a session switched off injects nothing', () => {
     writeFileSync(registryPath, `${JSON.stringify({ sessions: {}, off: [], known: [] }, null, 2)}\n`, 'utf8')
     const resumed = await mounted.turn('session-back')
     expect(resumed.some(section => section.name === S_LEDGER)).toBe(true)
+  })
+
+  it('injects nothing even when the switch is hiding a real attachment', async () => {
+    // The resolver now names what an opt-out hides, so the reference it returns
+    // for a switched-off session carries a path. Injection must keep refusing on
+    // the *source*: a non-empty path is what a writer sees, not a licence to
+    // inject a note this session was told to leave alone.
+    const note = join(base, 'discovered', 'notes', 'ledger.md')
+    mkdirSync(join(base, 'discovered', 'notes'), { recursive: true })
+    writeFileSync(note, '# Note\n\n## FROZEN-1 · x\n\nbody\n', 'utf8')
+    writeFileSync(registryPath, `${JSON.stringify({
+      sessions: { 'session-off-attached': note }, off: ['session-off-attached'], known: [],
+    }, null, 2)}\n`, 'utf8')
+    const viaSection = mount(undefined, 'section')
+    const turn = await viaSection.turn('session-off-attached')
+    expect(turn.some(section => section.name === S_LEDGER)).toBe(false)
+
+    const viaSnapshot = mount(undefined, 'snapshot')
+    await viaSnapshot.turn('session-off-attached')
+    expect(viaSnapshot.notices).toHaveLength(0)
   })
 })
 
@@ -535,7 +715,7 @@ describe('the injected body is selected by section, not by prefix length', () =>
     expect(body).toContain('TASK-1')
     expect(body).toContain('未列出不等于已被删除')
     // And the authority claim is scoped to what the message actually carries.
-    expect(body).toContain('本消息列出的条目即最新版本')
+    expect(body).toContain('本消息实际提供正文的条目即最新版本')
     expect(body).not.toContain('本节即最新版本')
   })
 
@@ -553,12 +733,14 @@ describe('the injected body is selected by section, not by prefix length', () =>
     // human's question for "the newest user message".
     expect(process.notices.filter(message => message.source.form === 'snapshot')).toHaveLength(1)
 
-    // The new content still reaches the model: the change notice carries it,
-    // because for an elided section the notice *is* the delivery.
+    // On-demand knowledge changes invalidate old copies without copying the
+    // whole process back into context; complete entry reads are required.
     const notice = process.notices.filter(message => message.source.form === 'notice').at(-1)
     const text = notice?.content.map(part => part.text).join('\n') ?? ''
     expect(text).toContain('TASK-1')
-    expect(text).toContain('a whole new stage of conclusions')
+    expect(text).not.toContain('a whole new stage of conclusions')
+    expect(text).toContain('完整最新内容')
+    expect(text).toContain(ledger)
   })
 
   it('keeps a pinned section whole even when it alone exceeds the budget', async () => {
@@ -578,5 +760,76 @@ describe('the injected body is selected by section, not by prefix length', () =>
     const snapshots = process.notices.filter(message => message.source.form === 'snapshot')
     expect(snapshots).toHaveLength(2)
     expect(snapshots[1]?.content.map(part => part.text).join('\n')).toContain('BODY-TWO')
+  })
+})
+
+describe('run logs are browsing-only, not another automatic delivery channel', () => {
+  it.each(['section', 'snapshot'] as const)('does not deliver additions, growth or removal of logs via %s', async delivery => {
+    const core = ledgerText('BODY-ONE')
+    writeFileSync(ledger, core + '\n## RUN-LOG-1\nRAW-ONE', 'utf8')
+    const process = mount('last', delivery, { pinnedSections: ['*'] })
+    const first = await process.turn('session-log')
+    const baseline = readFileSync(storePath, 'utf8')
+    for (const text of [
+      core + '\n## RUN-LOG-1\nRAW-TWO\n## JOURNAL-2\nMORE-OUTPUT',
+      core + '\n## MUTATION-LOG\nLEGACY-OUTPUT',
+      core,
+    ]) {
+      writeFileSync(ledger, text, 'utf8')
+      const next = await process.turn('session-log')
+      if (delivery === 'section') expect(next).toEqual(first)
+    }
+    expect(readFileSync(storePath, 'utf8')).toBe(baseline)
+    expect(process.notices.filter(message => message.source.form === 'notice')).toHaveLength(0)
+    expect(process.notices.filter(message => message.source.form === 'snapshot')).toHaveLength(delivery === 'snapshot' ? 1 : 0)
+    expect(JSON.stringify([first, process.notices])).not.toContain('RAW-ONE')
+  })
+
+  it('filters legacy persisted log ids without announcing that knowledge was deleted', async () => {
+    await mount().turn('session-upgrade')
+    const store = await readFingerprints(storePath)
+    await rememberFingerprint(storePath, 'session-upgrade', {
+      ...store['session-upgrade'],
+      sections: { ...store['session-upgrade'].sections, 'RUN-LOG-OLD': 'oldhash' },
+    })
+    const process = mount()
+    await process.turn('session-upgrade')
+    expect(process.notices).toHaveLength(0)
+  })
+
+  it('does not reintroduce log bodies through fenced fake knowledge headings', async () => {
+    writeFileSync(ledger, ledgerText('BODY-ONE') + '\n## RUN-LOG\n```md\n## OPEN-FAKE\nRAW-SECRET\n```', 'utf8')
+    const process = mount()
+    await process.turn('session-fence')
+    writeFileSync(ledger, readFileSync(ledger, 'utf8').replace('RAW-SECRET', 'NEW-SECRET'), 'utf8')
+    const next = await process.turn('session-fence')
+    expect(process.notices).toHaveLength(0)
+    expect(JSON.stringify(next)).not.toContain('SECRET')
+  })
+
+  it('never sends a sliced formula in a knowledge change notice', async () => {
+    writeFileSync(ledger, ledgerText('BODY-ONE') + '\n## OPEN-1\nold', 'utf8')
+    const process = mount()
+    await process.turn('session-demand')
+    writeFileSync(ledger, ledgerText('BODY-ONE') + '\n## OPEN-1\n' + 'FORMULA'.repeat(1000), 'utf8')
+    await process.turn('session-demand')
+    expect(noticeText(process)).toContain('OPEN-1')
+    expect(noticeText(process)).toContain('完整最新内容')
+    expect(noticeText(process)).not.toContain('FORMULA')
+  })
+
+  it('warns on a capped read without recording false deletions or a partial baseline', async () => {
+    await mount().turn('session-cap')
+    const baseline = readFileSync(storePath, 'utf8')
+    const process = mount('last', 'snapshot', { readBudget: 40 })
+    await process.turn('session-cap')
+    expect(readFileSync(storePath, 'utf8')).toBe(baseline)
+    expect(process.notices.filter(message => message.source.form === 'notice')).toHaveLength(0)
+    expect(noticeText(process)).toContain('文件读取上限')
+    expect(noticeText(process)).not.toContain('BODY-ONE')
+    const recovered = mount()
+    const sections = await recovered.turn('session-cap')
+    expect(JSON.stringify(sections)).toContain('BODY-ONE')
+    expect(recovered.notices).toHaveLength(0)
   })
 })

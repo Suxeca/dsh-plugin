@@ -22,16 +22,20 @@
  * @module @suxeca/dsh-note-board/tests/route-trust
  */
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { apply, type Config } from '../src/index.ts'
 import { MAX_READ_CHARS, readBoundedFile } from '../src/host/read.ts'
+import { fingerprintPathFor, rememberFingerprint } from '../src/host/fingerprints.ts'
+import { sectionFingerprints } from '../src/host/inject.ts'
+import { DEFAULT_RUN_LOG_SECTIONS } from '../src/sections.ts'
 import { readRegistry } from '../src/host/ledgers.ts'
 import {
   ROUTE_ATTACH, ROUTE_AUDITS, ROUTE_CATALOG, ROUTE_DETACH, ROUTE_INJECTION, ROUTE_KNOWN, ROUTE_LEDGER, ROUTE_PREFIX,
+  ROUTE_STATE,
 } from '../src/shared-routes.ts'
 
 const base = mkdtempSync(join(tmpdir(), 'note-trust-'))
@@ -187,6 +191,43 @@ describe('a route refuses an untrusted request before touching the filesystem', 
     expect(JSON.parse(captured.body).data.text).toContain('FROZEN-1')
   })
 
+  it('returns exact injection preview and separates logs from browsable knowledge', async () => {
+    const { routes } = mount()
+    const mixed = join(project, 'mixed.md')
+    writeFileSync(mixed, '# Preamble\n## FROZEN-1\nCORE\n## OPEN-1\nDETAIL\n## RUN-LOG\n' + 'RAW-OUTPUT'.repeat(1000), 'utf8')
+    await call(routes, `${ROUTE_PREFIX}${ROUTE_ATTACH}`, { method: 'POST', body: { sessionId: 'mixed', path: mixed } })
+    const captured = await call(routes, `${ROUTE_PREFIX}${ROUTE_LEDGER}`, {
+      method: 'GET', url: `${ROUTE_PREFIX}${ROUTE_LEDGER}?sessionId=mixed`,
+    })
+    const data = JSON.parse(captured.body).data
+    expect(data.knowledgeText).toContain('DETAIL')
+    expect(data.knowledgeText).not.toContain('RAW-OUTPUT')
+    expect(data.runLogsText).toContain('RAW-OUTPUT')
+    expect(data.injection.overBudget).toBe(false)
+    expect(data.injection.pinnedIds).toEqual(['FROZEN-1'])
+    expect(data.injection.onDemandIds).toEqual(['OPEN-1'])
+    expect(data.injection.logIds).toEqual(['RUN-LOG'])
+    expect(data.injectionPreview).toContain('CORE')
+    expect(data.injectionPreview).not.toContain('DETAIL')
+    expect(data.injectionPreview).not.toContain('RAW-OUTPUT')
+    const { ledgerBody } = await import('../src/host/inject.ts')
+    expect(data.injectionPreview).toBe(ledgerBody(data.ref, data.text, 6000, ['FROZEN*', 'RULES', 'VERDICT*']))
+  })
+
+  it('reports the independent read cap rather than pretending a partial body is authoritative', async () => {
+    const { routes } = mount({ maxBytes: 10 })
+    await call(routes, `${ROUTE_PREFIX}${ROUTE_ATTACH}`, { method: 'POST', body: { sessionId: 'cap', path: note } })
+    const captured = await call(routes, `${ROUTE_PREFIX}${ROUTE_LEDGER}`, {
+      method: 'GET', url: `${ROUTE_PREFIX}${ROUTE_LEDGER}?sessionId=cap`,
+    })
+    const data = JSON.parse(captured.body).data
+    expect(data.truncated).toBe(true)
+    expect(data.injection.blocked).toBe(true)
+    expect(data.injection.residentChars).toBe(0)
+    expect(data.injectionPreview).toContain('文件读取上限')
+    expect(data.injectionPreview).not.toContain('## FROZEN')
+  })
+
   it('fails closed with 503 when the trust surface is missing entirely', async () => {
     const { routes } = mount({ omitConnection: true })
     const captured = await call(routes, `${ROUTE_PREFIX}${ROUTE_LEDGER}`, {
@@ -296,7 +337,7 @@ describe('a failed mount leaves nothing registered', () => {
     // Derived from the route constants, so adding a route cannot leave this
     // assertion quietly wrong.
     const owned = new Set([
-      ROUTE_LEDGER, ROUTE_AUDITS, ROUTE_KNOWN, ROUTE_CATALOG, ROUTE_ATTACH, ROUTE_DETACH, ROUTE_INJECTION,
+      ROUTE_LEDGER, ROUTE_STATE, ROUTE_AUDITS, ROUTE_KNOWN, ROUTE_CATALOG, ROUTE_ATTACH, ROUTE_DETACH, ROUTE_INJECTION,
     ])
     expect(routes.size).toBe(owned.size)
     expect(table.size).toBe(owned.size)
@@ -424,5 +465,214 @@ describe('the injection switch is per session and revokes what was sent', () => 
       url: `${ROUTE_PREFIX}${ROUTE_LEDGER}?sessionId=s2`,
     })
     expect((JSON.parse(other.body) as { data: { ref?: { source?: string } } }).data.ref?.source).not.toBe('off')
+  })
+})
+
+/**
+ * The budget view's data: size per section, and — against the last *injected*
+ * baseline — which sections have been moving. That second signal is the whole
+ * point: a note used as a log changes every session, frozen definitions do not,
+ * and before this the only symptom was a total quietly crossing the soft budget.
+ */
+describe('GET /ledger reports per-section size and what moved', () => {
+  it('classifies every section and has no baseline before the first injection', async () => {
+    const { routes } = mount()
+    await call(routes, `${ROUTE_PREFIX}${ROUTE_ATTACH}`, {
+      method: 'POST',
+      body: { sessionId: 's1', path: note },
+    })
+    const captured = await call(routes, `${ROUTE_PREFIX}${ROUTE_LEDGER}`, {
+      method: 'GET',
+      url: `${ROUTE_PREFIX}${ROUTE_LEDGER}?sessionId=s1`,
+    })
+    const data = (JSON.parse(captured.body) as {
+      data: { sections?: readonly { id: string, cls: string, chars: number, changed: boolean }[], baselineAt?: number | null }
+    }).data
+    const frozen = data.sections?.find(row => row.id === 'FROZEN-1')
+    expect(frozen?.cls).toBe('resident')
+    expect(frozen?.chars).toBeGreaterThan(0)
+    // No baseline means every flag is false by construction, not by observation.
+    expect(data.baselineAt).toBeNull()
+    expect(data.sections?.every(row => !row.changed)).toBe(true)
+  })
+
+  it('marks a section changed only after it diverges from the injected baseline', async () => {
+    const { routes, registryPath } = mount()
+    await call(routes, `${ROUTE_PREFIX}${ROUTE_ATTACH}`, {
+      method: 'POST',
+      body: { sessionId: 's1', path: note },
+    })
+    const before = readFileSync(note, 'utf8')
+    // A baseline is what a *committed* delivery would have recorded: the same
+    // hashes the delta notice compares, written through the same store.
+    await rememberFingerprint(fingerprintPathFor(registryPath), 's1', {
+      path: note,
+      sections: Object.fromEntries(sectionFingerprints(before, DEFAULT_RUN_LOG_SECTIONS)),
+      at: Date.now(),
+    })
+    const stable = await call(routes, `${ROUTE_PREFIX}${ROUTE_LEDGER}`, {
+      method: 'GET',
+      url: `${ROUTE_PREFIX}${ROUTE_LEDGER}?sessionId=s1`,
+    })
+    const stableRows = (JSON.parse(stable.body) as {
+      data: { sections?: readonly { id: string, changed: boolean }[], baselineAt?: number | null }
+    }).data
+    expect(stableRows.baselineAt).toBeGreaterThan(0)
+    expect(stableRows.sections?.every(row => !row.changed)).toBe(true)
+
+    // The failure this view exists to surface: a resident section is appended
+    // to, exactly as a log would be written.
+    writeFileSync(note, `${before}\nmore process notes\n`, 'utf8')
+    const moved = await call(routes, `${ROUTE_PREFIX}${ROUTE_LEDGER}`, {
+      method: 'GET',
+      url: `${ROUTE_PREFIX}${ROUTE_LEDGER}?sessionId=s1`,
+    })
+    const movedRows = (JSON.parse(moved.body) as {
+      data: { sections?: readonly { id: string, cls: string, changed: boolean }[] }
+    }).data
+    expect(movedRows.sections?.find(row => row.id === 'FROZEN-1')?.changed).toBe(true)
+    writeFileSync(note, before, 'utf8')
+  })
+
+  it('lists a run log with its size but does not claim to track its changes', async () => {
+    const { routes } = mount()
+    const withLog = join(base, 'ledger-with-log.md')
+    writeFileSync(withLog, '# note\n\n## FROZEN-1 · x\n\nbody\n\n## RUN-LOG · a run\n- path: runs/1\n', 'utf8')
+    await call(routes, `${ROUTE_PREFIX}${ROUTE_ATTACH}`, {
+      method: 'POST',
+      body: { sessionId: 's1', path: withLog },
+    })
+    const captured = await call(routes, `${ROUTE_PREFIX}${ROUTE_LEDGER}`, {
+      method: 'GET',
+      url: `${ROUTE_PREFIX}${ROUTE_LEDGER}?sessionId=s1`,
+    })
+    const data = (JSON.parse(captured.body) as {
+      data: { sections?: readonly { id: string, cls: string, changed: boolean }[] }
+    }).data
+    const log = data.sections?.find(row => row.id === 'RUN-LOG')
+    expect(log?.cls).toBe('log')
+    expect(log?.changed).toBe(false)
+  })
+
+  it('flags a knowledge section that reads like a run record, and never a log', async () => {
+    const { routes } = mount()
+    const mixed = join(base, 'ledger-mixed.md')
+    writeFileSync(mixed, [
+      '# note',
+      '',
+      '## FROZEN-1 · frozen',
+      'definition only',
+      '',
+      '## VERDICT-9 · 设备与算法问题记录',
+      '本次跑了 K=32 的作业，提交后发现显存不够、报错内存墙；当时怀疑算法写错，后来试了另一种写法仍然走不通，实测失败三次。',
+      '',
+      '## RUN-LOG · a run',
+      '本次跑了 K=32，报错显存不够，失败三次，设备故障。',
+      '',
+    ].join('\n'), 'utf8')
+    await call(routes, `${ROUTE_PREFIX}${ROUTE_ATTACH}`, {
+      method: 'POST',
+      body: { sessionId: 's1', path: mixed },
+    })
+    const captured = await call(routes, `${ROUTE_PREFIX}${ROUTE_LEDGER}`, {
+      method: 'GET',
+      url: `${ROUTE_PREFIX}${ROUTE_LEDGER}?sessionId=s1`,
+    })
+    const data = (JSON.parse(captured.body) as {
+      data: { sections?: readonly { id: string, cls: string, smell?: string, markers?: readonly string[] }[] }
+    }).data
+    expect(data.sections?.find(row => row.id === 'FROZEN-1')?.smell).toBeUndefined()
+    expect(data.sections?.find(row => row.id === 'VERDICT-9')?.smell).toBe('episodic')
+    expect((data.sections?.find(row => row.id === 'VERDICT-9')?.markers ?? []).length).toBeGreaterThan(0)
+    // A run log is where such records belong: flagging it would invert the advice.
+    expect(data.sections?.find(row => row.id === 'RUN-LOG')?.smell).toBeUndefined()
+  })
+})
+
+/**
+ * `GET /state` exists for the composer entry, which is mounted for as long as a
+ * conversation is open. What it must never do is carry the note: a chip that
+ * pulled a twenty-kilobyte body every few seconds would make an idle session's
+ * cost grow with the note it happens to be showing.
+ */
+describe('GET /state answers the binding alone', () => {
+  it('reports the binding, existence and switch, and never the text', async () => {
+    const { routes } = mount()
+    await call(routes, `${ROUTE_PREFIX}${ROUTE_ATTACH}`, {
+      method: 'POST',
+      body: { sessionId: 's1', path: note },
+    })
+    const captured = await call(routes, `${ROUTE_PREFIX}${ROUTE_STATE}`, {
+      method: 'GET',
+      url: `${ROUTE_PREFIX}${ROUTE_STATE}?sessionId=s1`,
+    })
+    expect(captured.status).toBe(200)
+    const data = (JSON.parse(captured.body) as { data: Record<string, unknown> }).data
+    const ref = data.ref as { source?: string, path?: string }
+    expect(ref.source).toBe('attached')
+    expect(ref.path).toBe(note)
+    expect(data.exists).toBe(true)
+    expect(data.enabled).toBe(true)
+    expect(Object.hasOwn(data, 'text')).toBe(false)
+    // Belt and braces: the body of the note must not appear anywhere in the reply.
+    expect(captured.body).not.toContain('## FROZEN-1')
+  })
+
+  it('names what an off switch hides while still reporting the switch as off', async () => {
+    const { routes } = mount()
+    await call(routes, `${ROUTE_PREFIX}${ROUTE_ATTACH}`, {
+      method: 'POST',
+      body: { sessionId: 's1', path: note },
+    })
+    await call(routes, `${ROUTE_PREFIX}${ROUTE_INJECTION}`, {
+      method: 'POST',
+      body: { sessionId: 's1', enabled: false },
+    })
+    const captured = await call(routes, `${ROUTE_PREFIX}${ROUTE_STATE}`, {
+      method: 'GET',
+      url: `${ROUTE_PREFIX}${ROUTE_STATE}?sessionId=s1`,
+    })
+    const data = (JSON.parse(captured.body) as {
+      data: { ref: { source?: string, underlying?: string, path?: string }, enabled?: boolean }
+    }).data
+    expect(data.ref.source).toBe('off')
+    expect(data.ref.underlying).toBe('attached')
+    expect(data.ref.path).toBe(note)
+    expect(data.enabled).toBe(false)
+  })
+
+  it('is behind the same trust gate as every other route', async () => {
+    const { routes } = mount({ rejection: 403 })
+    const captured = await call(routes, `${ROUTE_PREFIX}${ROUTE_STATE}`, {
+      method: 'GET',
+      url: `${ROUTE_PREFIX}${ROUTE_STATE}?sessionId=s1`,
+    })
+    expect(captured.status).toBe(403)
+    expect(captured.body).toBe('')
+  })
+
+  it('still serves the note to the board while injection is off', async () => {
+    // Display is not delivery: the switch stops the note reaching the model, not
+    // the human reading their own definitions. Blanking the pane is what made
+    // "关闭" look like the note had been deleted.
+    const { routes } = mount()
+    await call(routes, `${ROUTE_PREFIX}${ROUTE_ATTACH}`, {
+      method: 'POST',
+      body: { sessionId: 's1', path: note },
+    })
+    await call(routes, `${ROUTE_PREFIX}${ROUTE_INJECTION}`, {
+      method: 'POST',
+      body: { sessionId: 's1', enabled: false },
+    })
+    const captured = await call(routes, `${ROUTE_PREFIX}${ROUTE_LEDGER}`, {
+      method: 'GET',
+      url: `${ROUTE_PREFIX}${ROUTE_LEDGER}?sessionId=s1`,
+    })
+    const data = (JSON.parse(captured.body) as {
+      data: { ref: { source?: string }, exists?: boolean, text?: string }
+    }).data
+    expect(data.ref.source).toBe('off')
+    expect(data.exists).toBe(true)
+    expect(data.text).toContain('## FROZEN-1')
   })
 })

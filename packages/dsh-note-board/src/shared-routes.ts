@@ -12,6 +12,14 @@ export const ROUTE_PREFIX = '/note-board/api'
 /** GET the session's bound ledger. */
 export const ROUTE_LEDGER = '/ledger'
 
+/**
+ * GET the session's binding state alone — no note text.
+ *
+ * Separate from {@link ROUTE_LEDGER} because the composer entry polls it: see
+ * `StatePayload` for why a chip must not pull the whole note.
+ */
+export const ROUTE_STATE = '/state'
+
 /** GET the bound ledger's adversarial-audit inbox. */
 export const ROUTE_AUDITS = '/audits'
 

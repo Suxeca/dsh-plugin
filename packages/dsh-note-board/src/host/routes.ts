@@ -2,6 +2,7 @@
  * Host routes for @suxeca/dsh-note-board.
  *
  *   GET  /note-board/api/ledger?sessionId=X   the session's bound ledger
+ *   GET  /note-board/api/state?sessionId=X    just the binding, for polling
  *   GET  /note-board/api/audits?sessionId=X   its adversarial-audit inbox
  *   GET  /note-board/api/known                ledgers attached before
  *   POST /note-board/api/attach               point a session at a ledger
@@ -38,15 +39,17 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import type { AuditFile, AuditsPayload, CatalogPayload, Envelope, KnownPayload, LedgerPayload } from '../shared.ts'
+import type { AuditFile, AuditsPayload, CatalogPayload, Envelope, KnownPayload, LedgerPayload, LedgerRef, LedgerSectionRow, StatePayload } from '../shared.ts'
 import { buildCatalog, type CatalogDeps } from './catalog.ts'
 import {
   attachLedger, auditInboxFor, detachLedger, readRegistry, resolveLedger, usableSessionId, type LedgerDeps,
   setInjection,
 } from './ledgers.ts'
-import { injectionOffNotice } from './inject.ts'
+import { injectionOffNotice, ledgerBody } from './inject.ts'
+import { DEFAULT_PINNED_SECTIONS, DEFAULT_RUN_LOG_SECTIONS, injectionPlan, selectNote } from '../sections.ts'
+import { sectionRows } from './budget.ts'
 import { readBoundedFile } from './read.ts'
-import { ROUTE_ATTACH, ROUTE_AUDITS, ROUTE_CATALOG, ROUTE_DETACH, ROUTE_INJECTION, ROUTE_KNOWN, ROUTE_LEDGER, ROUTE_PREFIX } from '../shared-routes.ts'
+import { ROUTE_ATTACH, ROUTE_AUDITS, ROUTE_CATALOG, ROUTE_DETACH, ROUTE_INJECTION, ROUTE_KNOWN, ROUTE_LEDGER, ROUTE_PREFIX, ROUTE_STATE } from '../shared-routes.ts'
 
 /** Everything the routes need, supplied by the plugin entry. */
 export interface BoardRouteDeps extends LedgerDeps, CatalogDeps {
@@ -56,6 +59,8 @@ export interface BoardRouteDeps extends LedgerDeps, CatalogDeps {
   auditLimit: number
   /** Characters a companion writer injects each turn. */
   injectBudget: number
+  pinnedSections?: readonly string[]
+  runLogSections?: readonly string[]
 }
 
 /**
@@ -157,6 +162,10 @@ async function readLedger(deps: BoardRouteDeps, sessionId: string): Promise<Ledg
     // One bounded, type-checked read: the cap is a property of the read rather
     // than a slice applied to something already fully in memory.
     const read = await readBoundedFile(ref.path, deps.maxBytes)
+    const pinned = deps.pinnedSections ?? DEFAULT_PINNED_SECTIONS
+    const logs = deps.runLogSections ?? DEFAULT_RUN_LOG_SECTIONS
+    const selection = selectNote(read.text, pinned, logs)
+    const sections = await sectionRows(deps, sessionId, ref, read.text, selection)
     return {
       ref,
       exists: true,
@@ -167,10 +176,41 @@ async function readLedger(deps: BoardRouteDeps, sessionId: string): Promise<Ledg
       // Character count, not byte count: a writer slices the JS string, and a
       // ledger full of CJK and TeX has far fewer characters than bytes.
       injectBudget: deps.injectBudget,
+      injection: injectionPlan(selection, deps.injectBudget, read.truncated),
+      sections: sections.rows,
+      baselineAt: sections.baselineAt,
+      injectionPreview: ledgerBody(ref, read.text, deps.injectBudget, pinned, logs, read.truncated) ?? '',
+      knowledgeText: selection.knowledgeText,
+      runLogsText: selection.logsText,
     }
   } catch {
     return { ref, exists: false, mtime: null, bytes: 0, text: '', truncated: false, injectBudget: deps.injectBudget }
   }
+}
+
+/**
+ * The binding state alone — one `stat`, never the note's text.
+ *
+ * This is what the entry above the composer polls. It deliberately does not
+ * reuse {@link readLedger}: that route exists to hand out the note, and a chip
+ * that pulled a twenty-kilobyte body every few seconds would make an idle
+ * conversation's cost grow with the note it is showing.
+ */
+async function readState(deps: BoardRouteDeps, sessionId: string): Promise<StatePayload> {
+  const ref = await resolveLedger(deps, sessionId)
+  let exists = false
+  // Non-empty for an attachment, a discovery, and an `'off'` switch that is
+  // hiding one of those: all three are worth reporting as present or missing.
+  if (ref.path !== '') {
+    try {
+      exists = (await stat(ref.path)).isFile()
+    } catch {
+      // A binding whose file is gone is data, not an error: the human moved or
+      // deleted it, and the entry has to say so instead of failing to render.
+      exists = false
+    }
+  }
+  return { ref, exists, enabled: ref.source !== 'off' }
 }
 
 /**
@@ -300,6 +340,7 @@ export function registerBoardRoutes(ctx: Context, deps: BoardRouteDeps): () => v
 
   try {
     get(ROUTE_LEDGER, (url) => readLedger(deps, sessionIdFrom(url)))
+    get(ROUTE_STATE, (url) => readState(deps, sessionIdFrom(url)))
     get(ROUTE_AUDITS, (url) => readAudits(deps, sessionIdFrom(url)))
     get(ROUTE_KNOWN, async (): Promise<KnownPayload> => ({ paths: (await readRegistry(deps.registryPath)).known }))
 
