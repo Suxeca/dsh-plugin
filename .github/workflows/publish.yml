@@ -58,8 +58,16 @@ jobs:
           # pnpm 11 requires node:sqlite (Node ≥ 22.5); match the harness
           # release flow's primary Node version.
           node-version: 24
-          # The publish step resolves credentials through this registry URL.
-          registry-url: 'https://registry.npmjs.org'
+          # NO `registry-url` here, on purpose. It makes setup-node write
+          # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` into .npmrc,
+          # and an explicit `_authToken` entry makes the client skip its own
+          # OIDC exchange. That is exactly what we saw on every attempt:
+          #   [WARN] Failed to replace env in config: ${NODE_AUTH_TOKEN} in .npmrc key "_authToken"
+          #   [WARN] Skipped OIDC: ERR_PNPM_AUTH_TOKEN_EXCHANGE ... (status code 404)
+          #   [E404] 404 Not Found - PUT .../@suxeca%2fdsh-client-ui-session-switcher
+          # npm rejects a write it cannot authorize with a bare 404, so the
+          # failure looked like a missing package rather than a missing
+          # credential. Auth now resolves through trusted publishing only.
 
       # The tag drives publication: a tag version equal to one package's
       # version publishes exactly that package.
