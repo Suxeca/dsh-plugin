@@ -29,6 +29,10 @@ on:
 
 permissions:
   contents: read
+  # npm trusted publishing (OIDC): without id-token: write pnpm skips OIDC and
+  # falls back to the long-lived NPM_TOKEN, which npm rejects for this package
+  # with a bare 404 on PUT.
+  id-token: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
