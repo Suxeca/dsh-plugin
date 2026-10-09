@@ -11,8 +11,10 @@
 # `next` and promoted to `latest`. A tag that matches nothing runs the
 # pipeline harmlessly (no publish steps fire).
 #
-# Prerequisite: an npmjs token with publish rights for the @suxeca scope
-# stored as the repository secret `NPM_TOKEN`.
+# Prerequisite: the package on npmjs.com must name this repository as its
+# Trusted Publisher (package Settings -> Trusted Publishers -> GitHub Actions:
+# owner Suxeca, repository dsh-plugin, workflow publish.yml, no environment).
+# No npm token is involved anywhere in this workflow.
 name: Publish to npm
 
 on:
@@ -76,17 +78,20 @@ jobs:
         run: |
           TAG="${GITHUB_REF#refs/tags/dsh-v}"
           PKG=""
+          DIR=""
           HAS_TEST="0"
           for dir in packages/*; do
             [ -f "$dir/package.json" ] || continue
             VERSION=$(node -p "require('./$dir/package.json').version" 2>/dev/null || true)
             [ "$VERSION" = "$TAG" ] || continue
             PKG=$(node -p "require('./$dir/package.json').name")
+            DIR="$dir"
             HAS_TEST=$(node -p "require('./$dir/package.json').scripts && require('./$dir/package.json').scripts.test ? '1' : '0'")
             break
           done
-          echo "tag=$TAG pkg=$PKG has_test=$HAS_TEST"
+          echo "tag=$TAG pkg=$PKG dir=$DIR has_test=$HAS_TEST"
           echo "pkg=$PKG" >> "$GITHUB_OUTPUT"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
           echo "has_test=$HAS_TEST" >> "$GITHUB_OUTPUT"
 
       - name: Install (immutable)
@@ -102,11 +107,16 @@ jobs:
 
       # `prepublishOnly` rebuilds lib/ right before publishing; the tarball
       # then ships prebuilt code (see docs/develop/basic/publish).
+      # `npm publish`, not `pnpm publish`: npm CLI is the reference
+      # implementation of trusted publishing. pnpm's exchange returned
+      # ERR_PNPM_AUTH_TOKEN_EXCHANGE 404 even with every token removed, so the
+      # npm client is what tells a client-side problem apart from an
+      # npm-side trusted-publisher problem. No NODE_AUTH_TOKEN is supplied —
+      # auth comes from the OIDC id-token alone.
       - name: Publish to npm
         if: steps.resolve.outputs.pkg != ''
-        run: pnpm --filter "${{ steps.resolve.outputs.pkg }}" publish --no-git-checks --access public --tag next
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        working-directory: ${{ steps.resolve.outputs.dir }}
+        run: npm publish --access public --tag next
 
       # Keep `latest` in sync with every published rc, so a bare
       # `dsh plugin add @suxeca/<pkg>` always gets the newest fixed version
