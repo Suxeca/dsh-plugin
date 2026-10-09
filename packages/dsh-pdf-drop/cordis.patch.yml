@@ -1,0 +1,3 @@
+- insert:
+    - id: pdf-drop
+      name: '@suxeca/dsh-pdf-drop'

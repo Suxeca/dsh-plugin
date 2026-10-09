@@ -1,0 +1,4 @@
+# dsh-science-map bundle patch
+- insert:
+    - id: science-map
+      name: '@suxeca/dsh-science-map'

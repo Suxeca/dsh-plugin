@@ -1,0 +1,3 @@
+- insert:
+    - id: expression-mode
+      name: '@suxeca/dsh-expression-mode'

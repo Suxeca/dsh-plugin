@@ -1,0 +1,7 @@
+- insert:
+    - id: literature-library
+      name: '@suxeca/dsh-literature-library'
+      config:
+        libraryRoot: /home/suxeca/Workspace/docs/literature/library
+        catalogPath: /home/suxeca/Workspace/docs/literature/library/catalog.json
+        pagePath: /home/suxeca/Workspace/docs/literature/library-page.html

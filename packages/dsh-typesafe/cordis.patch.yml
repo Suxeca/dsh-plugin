@@ -1,0 +1,7 @@
+# Bundle 层：本插件挂进 host composition 的唯一一行。
+# 设置面（模型/超时/门禁开关）由插件自己的 settings 命名空间承载，
+# 密钥走 DSH credentials（env:TYPESAFE_API_KEY 或 ~/.dsh/.credentials.yaml），
+# 因此这里不需要 config 段。
+- insert:
+    - id: typesafe
+      name: '@suxeca/dsh-typesafe'

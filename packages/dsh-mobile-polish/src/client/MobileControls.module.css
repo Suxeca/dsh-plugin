@@ -1,0 +1,53 @@
+.controls {
+  position: fixed;
+  top: max(8px, env(safe-area-inset-top));
+  right: max(8px, env(safe-area-inset-right));
+  z-index: 70;
+  display: none;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2) 72%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--dsw-specific-input-major) 88%, transparent);
+  box-shadow: var(--dsw-shadow-lv2);
+  backdrop-filter: blur(20px) saturate(1.2);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  pointer-events: auto;
+}
+
+.button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.button svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.button[data-active] {
+  background: var(--dsw-alias-button-info-fill);
+  color: #fff;
+}
+
+.button:active { transform: scale(.94); }
+.divider { width: 1px; height: 22px; background: var(--dsw-alias-border-l2); opacity: .72; }
+
+@media (max-width: 600px) {
+  .controls { display: flex; }
+}

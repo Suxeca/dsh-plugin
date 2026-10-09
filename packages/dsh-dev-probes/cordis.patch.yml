@@ -1,0 +1,17 @@
+# dsh-dev-probes bundle patch.
+#
+# The single `insert` row is this plugin's entry. It carries no `config` block on
+# purpose: the one knob (`defaultPreset`, used by dsh_preset_probe and
+# dsh_preset_parse_check when no `id` is given) already defaults to the preset
+# these probes exist to inspect, and pinning it here would only be a second place
+# to edit when that changes.
+#
+# This row is what makes the package a *bundle*: `dsh.profile.bundles` requires
+# every listed package to declare `dsh.bundle.patch`, and the loader throws
+# before startup if the file is missing (packages/boot/app-boot/src/profile.ts,
+# resolveBundleDir + the `declares no dsh.bundle` check). Without this file the
+# package can be installed, linked and imported — and the profile still will not
+# boot, which is exactly how it failed once.
+- insert:
+    - id: dev-probes
+      name: '@suxeca/dsh-dev-probes'

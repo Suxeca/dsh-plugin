@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/suxeca/dsh-science-map/schemas/science-map.schema.json",
+  "title": "Science Map Specification",
+  "description": "Schema for Science Map: an epistemic research reasoning DAG with quadruple evidence, execution discrepancy auditing, and scientific figure embedding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "diagram_type", "meta", "nodes", "edges"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "diagram_type": {
+      "const": "science_map"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "field_of_study", "quality_profile"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "subtitle": { "type": "string" },
+        "locale": { "enum": ["zh-CN", "en"] },
+        "field_of_study": { "type": "string", "minLength": 1 },
+        "visual_preset": { "enum": ["classic", "signal-flow", "blueprint", "editorial"] },
+        "quality_profile": { "enum": ["standard", "showcase"] },
+        "main_path": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 2
+        },
+        "views": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label", "focus"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+              "label": { "type": "string", "minLength": 1 },
+              "focus": { "type": "array", "items": { "type": "string" } },
+              "note": { "type": "string" }
+            }
+          }
+        },
+        "conclusions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "items"],
+            "properties": {
+              "dot": { "enum": ["cyan", "rose", "emerald", "amber", "violet", "blue"] },
+              "title": { "type": "string", "minLength": 1 },
+              "items": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "category", "label", "col", "row"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+          "category": {
+            "enum": [
+              "theoretical_axiom",
+              "model_mapping",
+              "code_operator",
+              "hpc_campaign",
+              "observable",
+              "refuted_hypothesis"
+            ]
+          },
+          "label": { "type": "string", "minLength": 1 },
+          "sublabel": { "type": "string" },
+          "tag": { "type": "string" },
+          "col": { "type": "integer", "minimum": 0 },
+          "row": { "type": "integer", "minimum": 0 },
+          "is_main_line": { "type": "boolean" },
+          "width": { "type": "number", "minimum": 100 },
+          "height": { "type": "number", "minimum": 40 },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "theory": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "formula_latex": { "type": "string" },
+                  "warrant": { "type": "string" },
+                  "invariants": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "code_realization": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "repo_path": { "type": "string" },
+                  "lines": { "type": "string" },
+                  "git_commit": { "type": "string" },
+                  "physical_interpretation": { "type": "string" },
+                  "rationale_for_change": { "type": "string" }
+                }
+              },
+              "execution_audit": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "slurm_job_ids": { "type": "array", "items": { "type": "string" } },
+                  "requested_parameters": { "type": "object" },
+                  "actual_parameters": { "type": "object" },
+                  "slurm_script": { "type": "string" },
+                  "resources_used": { "type": "string" },
+                  "discrepancy": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["has_deviation", "rationale"],
+                    "properties": {
+                      "has_deviation": { "type": "boolean" },
+                      "rationale": { "type": "string" }
+                    }
+                  }
+                }
+              },
+              "dialogue_origin": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "session_id": { "type": "string" },
+                  "turn_index": { "type": "integer" },
+                  "intent_snippet": { "type": "string" }
+                }
+              }
+            }
+          },
+          "figure": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["figure_id", "title", "type", "asset_path"],
+            "properties": {
+              "figure_id": { "type": "string" },
+              "title": { "type": "string" },
+              "type": { "enum": ["plot", "diagram", "scaling", "spectrum", "dispersion", "lattice_geometry", "convergence"] },
+              "asset_path": { "type": "string" },
+              "caption": { "type": "string" },
+              "key_metrics": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["label", "value"],
+                  "properties": {
+                    "label": { "type": "string" },
+                    "value": { "type": "string" },
+                    "unit": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "from", "to", "role"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "role": {
+            "enum": [
+              "derives",
+              "implements",
+              "simulates",
+              "measures",
+              "refutes",
+              "evolves_to"
+            ]
+          },
+          "label": { "type": "string" },
+          "variant": { "enum": ["default", "emphasis", "security", "dashed"] },
+          "is_main_flow": { "type": "boolean" }
+        }
+      }
+    },
+    "boundaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "type", "nodes"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+          "label": { "type": "string", "minLength": 1 },
+          "type": { "enum": ["topological_sector", "computational_domain", "symmetry_subspace"] },
+          "nodes": { "type": "array", "items": { "type": "string" } },
+          "variant": { "enum": ["default", "emphasis", "security", "dashed"] }
+        }
+      }
+    }
+  }
+}

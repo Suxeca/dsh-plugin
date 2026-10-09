@@ -1,0 +1,351 @@
+/* dsh-typesafe 设置区块样式（settings.section）。
+   为什么不用宿主主题变量：这一块整体会被塞进深浅两种主题的设置面板，
+   写死纯黑/纯白文字会在另一侧不可读。因此正文一律 color: inherit，
+   次级文字用中灰 #888，分隔线与底色用半透明灰（rgb(128 128 128 / α)），
+   强调色只用一个偏蓝的中间调——它在白底与深底上都有足够对比度。
+   全部类名都经由 CSS module 引用（组件里只出现 css.xxx）。 */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  color: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  max-width: 62ch;
+  color: #888;
+  font-size: 12px;
+}
+
+.toolbar {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* —— 通用按钮 —— */
+.button {
+  border: 1px solid rgb(128 128 128 / 45%);
+  border-radius: 6px;
+  background: transparent;
+  padding: 3px 10px;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  border-color: #3f7ac9;
+  color: #3f7ac9;
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.buttonPrimary {
+  border-color: #3f7ac9;
+  color: #3f7ac9;
+}
+
+.buttonDanger {
+  border-color: rgb(200 90 80 / 60%);
+  color: #c85a50;
+}
+
+.buttonDanger:hover:not(:disabled) {
+  border-color: #c85a50;
+  color: #c85a50;
+}
+
+/* —— 横幅与提示 —— */
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid rgb(200 90 80 / 50%);
+  border-radius: 8px;
+  background: rgb(200 90 80 / 12%);
+  padding: 8px 10px;
+}
+
+.bannerText {
+  flex: 1;
+  min-width: 0;
+  color: #c85a50;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.bannerClose {
+  flex: none;
+  border: 0;
+  background: transparent;
+  padding: 0 2px;
+  color: #888;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bannerClose:hover {
+  color: inherit;
+}
+
+.notice {
+  margin: 0;
+  color: #3f9a6a;
+  font-size: 12px;
+}
+
+.hint {
+  margin: 0;
+  color: #888;
+  font-size: 12px;
+}
+
+.meta {
+  color: #888;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.errorLine {
+  margin: 0;
+  color: #c85a50;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* —— 分区 —— */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid rgb(128 128 128 / 28%);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.sectionTitle {
+  margin: 0;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sectionNote {
+  margin: 0;
+  color: #888;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* —— 密钥区 —— */
+.keyRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge {
+  flex: none;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.badgeReady {
+  background: rgb(63 154 106 / 16%);
+  color: #3f9a6a;
+}
+
+.badgeReadonly {
+  background: rgb(184 134 58 / 18%);
+  color: #b8863a;
+}
+
+.badgeMissing {
+  background: rgb(128 128 128 / 14%);
+  color: #888;
+}
+
+/* —— 表单 —— */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.fieldLabel {
+  color: #888;
+  font-size: 12px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px 14px;
+}
+
+.input,
+.inputWide,
+.inputPassword {
+  box-sizing: border-box;
+  border: 1px solid rgb(128 128 128 / 40%);
+  border-radius: 6px;
+  background: rgb(128 128 128 / 10%);
+  padding: 3px 8px;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+}
+
+.input {
+  width: 100%;
+}
+
+.inputWide {
+  width: 100%;
+  max-width: 420px;
+}
+
+.inputPassword {
+  flex: 1;
+  min-width: 180px;
+}
+
+.input:disabled,
+.inputWide:disabled,
+.inputPassword:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.input:focus-visible,
+.inputWide:focus-visible,
+.inputPassword:focus-visible {
+  border-color: #3f7ac9;
+  outline: none;
+}
+
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.toggle input {
+  margin-top: 3px;
+  flex: none;
+}
+
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* —— 统计与调用表 —— */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-radius: 6px;
+  background: rgb(128 128 128 / 10%);
+  padding: 6px 8px;
+}
+
+.statValue {
+  color: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.statLabel {
+  color: #888;
+  font-size: 11px;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table th {
+  border-bottom: 1px solid rgb(128 128 128 / 35%);
+  padding: 4px 8px 4px 0;
+  color: #888;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table td {
+  border-top: 1px solid rgb(128 128 128 / 18%);
+  padding: 4px 8px 4px 0;
+  color: inherit;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.ok {
+  color: #3f9a6a;
+}
+
+.fail {
+  color: #c85a50;
+}
+
+@media (max-width: 600px) {
+  .header {
+    flex-direction: column;
+  }
+
+  .toolbar {
+    margin-left: 0;
+  }
+}

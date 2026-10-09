@@ -1,0 +1,50 @@
+{
+  "name": "@suxeca/dsh-expression-mode",
+  "version": "0.2.0",
+  "private": true,
+  "description": "会话级中英语言选择与独立简明风格开关：命令、界面和科学保真规范",
+  "type": "module",
+  "license": "BSD-3-Clause",
+  "main": "./lib/index.js",
+  "types": "./lib/types/index.d.ts",
+  "files": ["lib/index.js", "lib/client.js", "lib/client.js.map", "lib/types/**/*.d.ts", "lib/types/**/*.d.ts.map", "rules", "skills", "cordis.patch.yml", "README.md"],
+  "scripts": {
+    "build": "tsc -b && tsdown",
+    "build:client": "tsdown",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run"
+  },
+  "exports": {
+    ".": {"types": "./lib/types/index.d.ts", "default": "./lib/index.js"},
+    "./client": {"types": "./lib/types/client/index.d.ts", "default": "./lib/client.js"},
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.2 <5",
+    "@deepseek-ai/dsh-agent": ">=0.1.5-rc.1 <2",
+    "@deepseek-ai/dsh-client-ui-conversation": ">=0.1.5-rc.1 <2",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.5-rc.1 <2",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.5-rc.1 <2",
+    "@deepseek-ai/dsh-llm": ">=0.1.5-rc.1 <2",
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-agent": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-host-webserver": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-llm": "0.1.5-rc.1",
+    "@types/node": "^24.13.3",
+    "@types/react": "~18.3.31",
+    "react": "^18.2.0",
+    "tsdown": "^0.22.14",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.8"
+  },
+  "dsh": {
+    "bundle": {"patch": "./cordis.patch.yml"},
+    "client": {"inject": ["@deepseek-ai/dsh-client-ui-slots", "@deepseek-ai/dsh-client-ui-conversation"], "platform": "web"}
+  }
+}

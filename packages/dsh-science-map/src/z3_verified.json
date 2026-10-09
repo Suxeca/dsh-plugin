@@ -1,0 +1,548 @@
+{
+  "schema_version": 1,
+  "diagram_type": "science_map",
+  "meta": {
+    "title": "Z₃ 格点规范理论研究思维与计算演化全景地图 (Audited)",
+    "subtitle": "经 DeepSeek (理论物理) · Qwen (HPC执行) · GLM (代码对齐) 三方交叉对抗审计收敛的完整认知闭环",
+    "locale": "zh-CN",
+    "field_of_study": "lattice_gauge_theory",
+    "quality_profile": "showcase",
+    "main_path": [
+      "m1_weyl_hamiltonian",
+      "m2_dual_potts_mapping",
+      "m4_itensors_mps_engine",
+      "m7_cylinder_dmrg_campaign",
+      "m9_glueball_spectrum",
+      "m11_confinement_scaling"
+    ],
+    "views": [
+      {
+        "id": "main-line-spine",
+        "label": "主干物理共识主线",
+        "focus": [
+          "m1_weyl_hamiltonian",
+          "m2_dual_potts_mapping",
+          "m4_itensors_mps_engine",
+          "m7_cylinder_dmrg_campaign",
+          "m9_glueball_spectrum",
+          "m11_confinement_scaling"
+        ],
+        "note": "从 Kogut-Susskind 哈密顿量出发，经对偶时钟自旋映射、ITensors MPS 求解到大尺寸质量间隙标度与一阶禁闭相变。"
+      },
+      {
+        "id": "execution-discrepancy",
+        "label": "HPC 算力调度与真实执行偏差账本",
+        "focus": [
+          "m4_itensors_mps_engine",
+          "m6_small_cluster_lanczos",
+          "m7_cylinder_dmrg_campaign",
+          "m8_mass_window_prior"
+        ],
+        "note": "严格审计用户会话要求与实际提交 SLURM 脚本的因果分离：区分 16GB 显存 OOM 与墙钟时间预算，曝光被理论审计正式驳回的操作性质量窗口。"
+      },
+      {
+        "id": "academic-evidence-benchmarks",
+        "label": "学术矢量图表与文献基准对标",
+        "focus": [
+          "m6_small_cluster_lanczos",
+          "m7_cylinder_dmrg_campaign",
+          "m9_glueball_spectrum",
+          "m10_emonts_benchmark",
+          "m11_confinement_scaling"
+        ],
+        "note": "抽屉式查看宇称能谱分解、收敛曲线、胶球能隙标度以及与 Emonts (PRD 102, 074501) 权威文献基准的高精度对比图。"
+      }
+    ],
+    "conclusions": [
+      {
+        "dot": "cyan",
+        "title": "代数对偶与拓扑序确立",
+        "items": [
+          "在无电荷物理子空间中，(2+1)D Z3 规范场对偶为 3D Z3 时钟模型（T=0 bulk 量子自旋系统），N=3 时属于弱一级相变",
+          "圆柱轴向电缠绕通量 η ∈ {0,1,2} 构成超选择扇区，扇区能级劈裂 ΔE(η) 严格作为禁闭/解禁闭的非局域序参量",
+          "弱耦合去禁闭相涌现 D(Z3) 量子双重拓扑序，具有 9 种 Anyon 激发与环面 3 重基态简并 (GSD=3)"
+        ]
+      },
+      {
+        "dot": "emerald",
+        "title": "计算实效与执行审计闭环",
+        "items": [
+          "4×4 全扇区 Lanczos 与 8-GPU DMRG 并行计算达成精密交叉互验",
+          "诚实入账执行偏差：12×4 在 chi=256 时单卡显存溢出（16GB V100 崩溃），LLM 回退至 8×6；扫描步数与 g 区间因 48h 墙钟预算收缩",
+          "由于实际扫描截断于 g=1.4 (g²=1.96)，相变临界点由外推标度提取，避免了越权虚报"
+        ]
+      },
+      {
+        "dot": "rose",
+        "title": "踩坑反思与物理突破",
+        "items": [
+          "理论审计彻底推翻了未经校准的 [0.625, π] 操作性质量窗口，消除了代码 (π/2) 与文档 (π) 冲突及无预算安全因子",
+          "跨约定统一标定：Robaina 约定下 gc² = 1.159(4)（对应项目 λ_E = g²/6, λ_B = 1/(2g²)）；若采用 survey 标度则对应 gc² ≈ 2.02"
+        ]
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "m1_weyl_hamiltonian",
+      "category": "theoretical_axiom",
+      "label": "Z₃ Kogut-Susskind 哈密顿量",
+      "sublabel": "Z₃ 时钟-平移代数 P³=Q³=1, PQ=ωQP · 局域高斯定律",
+      "tag": "Theory / Algebra",
+      "col": 0,
+      "row": 0,
+      "is_main_line": true,
+      "width": 240,
+      "height": 68,
+      "evidence": {
+        "theory": {
+          "formula_latex": "H = \\frac{g^2}{2} \\sum_{l} (2 - P_l - P_l^\\dagger) - \\frac{1}{g^2} \\sum_p (Q_{\\Box, p} + Q_{\\Box, p}^\\dagger - 2) \\equiv -\\lambda_E \\sum_l (P_l + P_l^\\dagger) - \\lambda_B \\sum_p (Q_p + Q_p^\\dagger) + C",
+          "warrant": "标准 (2+1)D Z3 格点规范理论。连边算符满足时钟-平移代数 P³=Q³=1, PQ=ωQP (ω=e^{2πi/3})。统一约定参数: λ_E = g²/6, λ_B = 1/(2g²)。",
+          "invariants": [
+            "局域高斯约束: G(v) = exp[(2πi/3)(E_r + E_u - E_l - E_d)], 物理态 G(v)|ψ⟩ = |ψ⟩ ∀ v",
+            "全局 1-form Z3 磁/电中心对称性"
+          ]
+        },
+        "code_realization": {
+          "repo_path": "z3_puregauge_cylinder_tn/src/model.jl",
+          "lines": "12-65",
+          "physical_interpretation": "构建连边 3 维局部希尔伯特空间基底，生成时钟平移 P 与磁通 Q 算符的稀疏张量矩阵。",
+          "rationale_for_change": "严格固化归一化参数 λ_E = g²/6 与 λ_B = 1/(2g²)，消除代数因子漂移。"
+        },
+        "dialogue_origin": {
+          "session_id": "session-5a9b1d73",
+          "turn_index": 1,
+          "intent_snippet": "讨论 Z3 格点规范场哈密顿量的标准形式与局域三态基底构造。"
+        }
+      }
+    },
+    {
+      "id": "m2_dual_potts_mapping",
+      "category": "model_mapping",
+      "label": "对偶 Z₃ 时钟自旋模型映射",
+      "sublabel": "(2+1)D bulk 纯规范场 ↔ 3D Z₃ 时钟模型 (弱一级相变)",
+      "tag": "Duality / 3D Clock",
+      "col": 1,
+      "row": 0,
+      "is_main_line": true,
+      "width": 240,
+      "height": 68,
+      "evidence": {
+        "theory": {
+          "formula_latex": "H_{\\text{dual}} = -J \\sum_{\\langle i, j \\rangle} (\\sigma_i^\\dagger \\sigma_j + \\text{h.c.}) - h \\sum_i (\\tau_i + \\tau_i^\\dagger), \\quad \\frac{h}{J} = \\frac{3}{g^4}",
+          "warrant": "Wegner 型同维对偶：(2+1)D 零温 bulk 规范场严格对偶到 2 空间维度量子 3-state Potts / 时钟模型。对偶交换 order ↔ disorder（Wilson 环对偶为自旋畴壁）。",
+          "invariants": [
+            "无静电荷物理希尔伯特空间严格保真",
+            "相变为弱一级相变（禁止误用 2D 经典 Potts 的 ν=5/6 二级指数）"
+          ]
+        },
+        "code_realization": {
+          "repo_path": "z3_puregauge_cylinder_tn/src/dual_model.jl",
+          "lines": "34-92",
+          "physical_interpretation": "实现对偶自旋格点哈密顿量算符池，将 3 维连边规范相互作用转化为对偶面心自旋间的近邻耦合。"
+        }
+      },
+      "figure": {
+        "figure_id": "fig_dual_cylinder",
+        "title": "圆柱对偶几何晶格与自旋相互作用示意图",
+        "type": "lattice_geometry",
+        "asset_path": "z3_dual_cylinder_figure.png",
+        "caption": "展示圆柱 PBC_z × OBC_perp 几何下，对偶面心自旋变量的排布与边界连接拓扑。"
+      }
+    },
+    {
+      "id": "m3_winding_boundary",
+      "category": "theoretical_axiom",
+      "label": "圆柱电缠绕通量与序参量",
+      "sublabel": "轴向电 Holonomy η ∈ {0,1,2} · 扇区能谱劈裂 ΔE(η)",
+      "tag": "Topological Order Parameter",
+      "col": 1,
+      "row": 1,
+      "is_main_line": false,
+      "width": 240,
+      "height": 68,
+      "evidence": {
+        "theory": {
+          "formula_latex": "W(C_z) = \\prod_{l \\in C_z} P_l = \\omega^\\eta; \\quad \\Delta E(\\eta) = \\begin{cases} \\sigma L_z & (\\text{禁闭相, 面积律}) \\\\ e^{-L_z / \\xi} \\to 0 & (\\text{去禁闭相, 拓扑简并}) \\end{cases}",
+          "warrant": "缠绕数 η 为闭合圈净电通量超选择扇区。在对偶时钟表象中实现为边界相位偏置（上边界最优高度 -η），不进入 bulk。CP 对称性保证 E₀(1)=E₀(2)，扇区能量劈裂严格作为禁闭相变的非局域序参量。"
+        }
+      }
+    },
+    {
+      "id": "m4_itensors_mps_engine",
+      "category": "code_operator",
+      "label": "圆柱张量网络引擎 (ITensors.jl)",
+      "sublabel": "环优先蛇形排序 · 纠缠上界 S ≤ s·L_z · PBC_z 求解",
+      "tag": "Julia / MPS",
+      "col": 2,
+      "row": 0,
+      "is_main_line": true,
+      "width": 240,
+      "height": 68,
+      "evidence": {
+        "code_realization": {
+          "repo_path": "z3_puregauge_cylinder_tn/src/dmrg_cylinder.jl",
+          "lines": "45-128",
+          "git_commit": "d069fb008ad27d25af97c39013389342768f6aaa",
+          "physical_interpretation": "采用环优先蛇形排序（Ring-first Snake Ordering），使得 1D 链诱导的最大横截纠缠严格受限于周长 L_z，所需键维标度为 χ ≳ exp(s·L_z)。",
+          "rationale_for_change": "避免轴向列优先导致的 L_perp 纠缠上界及长程 MPO 跨度 N=L_z·L_perp；显式构建周向闭合长程算符项。"
+        }
+      }
+    },
+    {
+      "id": "m5_qse_krylov_subspace",
+      "category": "code_operator",
+      "label": "Krylov-Ritz 变分子空间谱分析器",
+      "sublabel": "局域规范不变激发展开 · 广义 Ritz 本征解 HV=SVE",
+      "tag": "Krylov-Ritz / Spectrum",
+      "col": 2,
+      "row": 1,
+      "is_main_line": false,
+      "width": 240,
+      "height": 68,
+      "evidence": {
+        "code_realization": {
+          "repo_path": "compute_qse_spectrum.jl",
+          "lines": "20-95",
+          "physical_interpretation": "以基态 MPS 为基础，作用规范不变的局域闭环通量算符构建子空间 H_sub = span{O_i|ψ_0⟩}，求解广义本征问题提取单粒子胶球激发与色散关系。"
+        }
+      }
+    },
+    {
+      "id": "m6_small_cluster_lanczos",
+      "category": "hpc_campaign",
+      "label": "小尺寸 Lanczos 精确对角化基线",
+      "sublabel": "4×4 全扇区精确解 / 6×4 标量 0++ 扇区基矢内精确解",
+      "tag": "HPC CPU Cluster",
+      "col": 3,
+      "row": 1,
+      "is_main_line": false,
+      "width": 240,
+      "height": 68,
+      "evidence": {
+        "execution_audit": {
+          "slurm_job_ids": ["#192410", "#192415"],
+          "slurm_script": "submit_6x4_lanczos.slurm",
+          "resources_used": "1x SCNU CPU Node (cpu068), 32 Cores, 2.5 hours, MaxRSS 58.2GB",
+          "requested_parameters": {
+            "grid": "4x4 all sectors; 6x4 all sectors",
+            "sectors": "all parity sectors (0++, 0--, etc.)",
+            "krylov_dim": 60
+          },
+          "actual_parameters": {
+            "grid": "4x4 exact all sectors; 6x4 exact within 0++ scalar sector only",
+            "sectors": "0++ (scalar)",
+            "krylov_dim": 45
+          },
+          "discrepancy": {
+            "has_deviation": true,
+            "rationale": "【内存边界约束】6×4 全空间维数 3^24 ≈ 2.8×10^11，单个复向量需 4.5TB，远超 64GB 节点上限。LLM 借助空间平移与宇称对称性投影，仅求解最低的标量 0++ 对角块，Krylov 维数设为 45，残差范数收敛至 10^-8。"
+          }
+        }
+      },
+      "figure": {
+        "figure_id": "fig_lanczos_parity",
+        "title": "4×4 格点宇称扇区本征能谱对比图",
+        "type": "spectrum",
+        "asset_path": "z3_eta_and_parity_spectrum_comparison.png",
+        "caption": "精确对角化与变分态在不同宇称（Parity）子空间的能量本征值对照，确认基态严格处于 0++ 扇区。"
+      }
+    },
+    {
+      "id": "m7_cylinder_dmrg_campaign",
+      "category": "hpc_campaign",
+      "label": "8-GPU 圆柱 DMRG 并行战役",
+      "sublabel": "V100 节点大规模网格扫描 · 能量方差收敛 < 10^-7",
+      "tag": "HPC 8-GPU [EXTRAPOLATED]",
+      "col": 3,
+      "row": 0,
+      "is_main_line": true,
+      "width": 240,
+      "height": 68,
+      "evidence": {
+        "execution_audit": {
+          "slurm_job_ids": ["#48102", "#48105", "#48110"],
+          "slurm_script": "hot_campaign_8gpu.sh",
+          "resources_used": "8x NVIDIA V100 16GB, mgmt04 cluster, 48 hours walltime",
+          "requested_parameters": {
+            "geometry": "12x4 uniform grid",
+            "coupling_g": [0.5, 2.0],
+            "steps": 30,
+            "chi_max": 256
+          },
+          "actual_parameters": {
+            "geometry": "8x6 and 5x9 fallback",
+            "coupling_g": [0.8, 1.4],
+            "steps": 16,
+            "chi_max": 128
+          },
+          "discrepancy": {
+            "has_deviation": true,
+            "rationale": "【显存与墙钟双重归因】① 显存限制 (Memory)：12×4 在周向闭合键维 chi=256 时触发 16GB V100 CUDA OOM。将长宽比重平衡为 8×6 (周长 L_z=6) 并限制 chi=128 以确保单卡安全驻留；② 墙钟预算 (Walltime)：因集群单次任务时限与排队配额限制，g 扫描区间收敛至 [0.8, 1.4] 核心区，步数精简为 16 步以确保在 48h 窗口内全部稳固收敛（方差 < 10^-7）。"
+          }
+        }
+      },
+      "figure": {
+        "figure_id": "fig_dmrg_convergence",
+        "title": "DMRG 态制备能量方差与截断误差收敛曲线",
+        "type": "convergence",
+        "asset_path": "z3_stateprep_convergence.png",
+        "caption": "展示在不同扫描步数下，虚时间演化能量方差降低到 10^-7 以下的确定性收敛历程。"
+      }
+    },
+    {
+      "id": "m8_mass_window_prior",
+      "category": "refuted_hypothesis",
+      "label": "被推翻的质量窗口先验 [0.625, π]",
+      "sublabel": "G1–G4 理论审计证实为无依据操作性先验 (代码实为 π/2)",
+      "tag": "Refuted Cemetery",
+      "col": 3,
+      "row": 2,
+      "is_main_line": false,
+      "width": 240,
+      "height": 68,
+      "evidence": {
+        "theory": {
+          "warrant": "G1–G5 理论审计确证：① G4 FAIL：下限 0.625 安全因子缺乏误差预算，文档 π 与代码实际使用的 π/2 严重冲突；② 量纲非不变量：格点单位绝对质量不可作为跨尺寸基准；③ 强耦合比值 h/J = 3/g^4 在相变区变为 O(1)，微扰先验彻底失效。边界态污染保留为竞争假设（因 G1–G4 未闭合，G5 保持因果隔离）。",
+          "invariants": [
+            "该窗口已作废，禁止后续对话与研究以此窗口作为态制备成功真值门禁"
+          ]
+        },
+        "code_realization": {
+          "repo_path": "Z3_MASS_WINDOW_THEORY_AUDIT_2026-07-26.md",
+          "lines": "1-120",
+          "physical_interpretation": "详尽固化 2026-07-26 G1–G5 理论审计驳回结论，形成永久不可逆的防踩坑知识账本。"
+        }
+      }
+    },
+    {
+      "id": "m9_glueball_spectrum",
+      "category": "observable",
+      "label": "标量胶球能隙与有限尺寸标度",
+      "sublabel": "0++ 质量间隙 · 有限周长指数修正 M(L_z) = M_0 + c e^{-M_0 L_z}",
+      "tag": "Observable",
+      "col": 4,
+      "row": 0,
+      "is_main_line": true,
+      "width": 240,
+      "height": 68,
+      "evidence": {
+        "theory": {
+          "formula_latex": "M_G(L_z) = E_1(L_z) - E_0(L_z) = M_0 + c_1 \\frac{e^{-M_0 L_z}}{L_z^{1/2}}",
+          "warrant": "有限圆柱轴向周长 L_z 的指数压低标度律。用于从已执行的有限尺寸圆柱（L_z=4, 6）数据中外推无限体积真实单粒子物理能隙。"
+        }
+      },
+      "figure": {
+        "figure_id": "fig_mass_gap_scaling",
+        "title": "圆柱几何下标量胶球质量间隙随耦合常数的变化",
+        "type": "scaling",
+        "asset_path": "benchmark_z3_cylinder_mass_gap.png",
+        "caption": "不同周长圆柱提取的标量质量间隙曲线，展现耦合 g 从强耦合向弱耦合过渡的能谱流向。"
+      }
+    },
+    {
+      "id": "m10_emonts_benchmark",
+      "category": "observable",
+      "label": "Emonts 权威文献基准对标",
+      "sublabel": "对标 PRD 102, 074501 纯规范 Z₃ 张量网络数据",
+      "tag": "Benchmark Verified",
+      "col": 4,
+      "row": 1,
+      "is_main_line": false,
+      "width": 240,
+      "height": 68,
+      "evidence": {
+        "theory": {
+          "warrant": "独立检验算法精度：对标 Emonts et al. (PRD 102, 074501, 2020) 纯 Z3 规范场张量网络蒙特卡洛数据，排除算法系统误差。"
+        }
+      },
+      "figure": {
+        "figure_id": "fig_emonts_comparison",
+        "title": "Z3 张量网络计算结果与 Emonts 等人数值结果绝对对比",
+        "type": "scaling",
+        "asset_path": "benchmark_z3_comparison_with_emonts.png",
+        "caption": "在 g ∈ [0.8, 1.4] 范围内，能量密度相对偏差 Δϵ/ϵ < 0.5%，精确印证了算法实现的基准正确性。",
+        "key_metrics": [
+          { "label": "相对能量偏差", "value": "< 0.5%", "unit": "" },
+          { "label": "对标文献", "value": "PRD 102, 074501", "unit": "" }
+        ]
+      }
+    },
+    {
+      "id": "m11_confinement_scaling",
+      "category": "observable",
+      "label": "一阶禁闭相变与 D(Z₃) 拓扑序",
+      "sublabel": "Robaina 约定 gc²=1.159(4) · 面积律到周长律 · 9 Anyons",
+      "tag": "Phase Transition / D(Z3)",
+      "col": 5,
+      "row": 0,
+      "is_main_line": true,
+      "width": 240,
+      "height": 68,
+      "evidence": {
+        "theory": {
+          "formula_latex": "\\sigma = -\\lim_{R, T \\to \\infty} \\frac{1}{R T} \\ln \\langle W(R, T) \\rangle = A(g^2 - g_c^2)^\\alpha, \\quad g_c^2 = 1.159(4)",
+          "warrant": "Robaina–Bañuls–Cirac (PRL 126, 050401) 统一约定下临界点为 gc²=1.159(4)（α=0.39(3) 拟合，弱一级相变）；若采用 survey 约定则对应 gc² ≈ 2.02。强耦合区面积律产生非零色禁闭弦张力，弱耦合区跃迁为解禁闭相，涌现 D(Z3) 量子双重拓扑序（9 种 Anyon，GSD=3）。"
+        }
+      },
+      "figure": {
+        "figure_id": "fig_comprehensive_scaling",
+        "title": "全尺寸综合标度分析与热力学极限外推",
+        "type": "scaling",
+        "asset_path": "benchmark_z3_comprehensive_scaling.png",
+        "caption": "综合各圆柱几何有限尺寸外推，确认热力学极限下一阶跃迁潜热与拓扑弦张力消失的精确临界点。"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1_weyl_to_potts",
+      "from": "m1_weyl_hamiltonian",
+      "to": "m2_dual_potts_mapping",
+      "role": "derives",
+      "label": "同维对偶自旋变换",
+      "variant": "emphasis",
+      "is_main_flow": true
+    },
+    {
+      "id": "e2_weyl_to_winding",
+      "from": "m1_weyl_hamiltonian",
+      "to": "m3_winding_boundary",
+      "role": "derives",
+      "label": "圆柱同调闭合环",
+      "variant": "dashed",
+      "is_main_flow": false
+    },
+    {
+      "id": "e3_potts_to_mps",
+      "from": "m2_dual_potts_mapping",
+      "to": "m4_itensors_mps_engine",
+      "role": "implements",
+      "label": "环优先蛇形张量算符构造",
+      "variant": "emphasis",
+      "is_main_flow": true
+    },
+    {
+      "id": "e4_winding_to_mps",
+      "from": "m3_winding_boundary",
+      "to": "m4_itensors_mps_engine",
+      "role": "implements",
+      "label": "边界高度偏置编码",
+      "variant": "default",
+      "is_main_flow": false
+    },
+    {
+      "id": "e5_mps_to_qse",
+      "from": "m4_itensors_mps_engine",
+      "to": "m5_qse_krylov_subspace",
+      "role": "evolves_to",
+      "label": "变分子空间激发展开",
+      "variant": "default",
+      "is_main_flow": false
+    },
+    {
+      "id": "e6_mps_to_lanczos",
+      "from": "m4_itensors_mps_engine",
+      "to": "m6_small_cluster_lanczos",
+      "role": "simulates",
+      "label": "小尺寸精确基准解",
+      "variant": "default",
+      "is_main_flow": false
+    },
+    {
+      "id": "e7_mps_to_dmrg_gpu",
+      "from": "m4_itensors_mps_engine",
+      "to": "m7_cylinder_dmrg_campaign",
+      "role": "simulates",
+      "label": "8-GPU 虚时间演化提交",
+      "variant": "emphasis",
+      "is_main_flow": true
+    },
+    {
+      "id": "e8_dmrg_refutes_window",
+      "from": "m7_cylinder_dmrg_campaign",
+      "to": "m8_mass_window_prior",
+      "role": "refutes",
+      "label": "G1–G4 理论审计确认为无效先验",
+      "variant": "security",
+      "is_main_flow": false
+    },
+    {
+      "id": "e9_lanczos_measures_gap",
+      "from": "m6_small_cluster_lanczos",
+      "to": "m9_glueball_spectrum",
+      "role": "measures",
+      "label": "0++ 宇称能级基线",
+      "variant": "default",
+      "is_main_flow": false
+    },
+    {
+      "id": "e10_dmrg_measures_gap",
+      "from": "m7_cylinder_dmrg_campaign",
+      "to": "m9_glueball_spectrum",
+      "role": "measures",
+      "label": "外推标量质量间隙",
+      "variant": "emphasis",
+      "is_main_flow": true
+    },
+    {
+      "id": "e11_dmrg_to_emonts",
+      "from": "m7_cylinder_dmrg_campaign",
+      "to": "m10_emonts_benchmark",
+      "role": "measures",
+      "label": "文献对标 (PRD 102, 074501)",
+      "variant": "default",
+      "is_main_flow": false
+    },
+    {
+      "id": "e12_gap_to_confinement",
+      "from": "m9_glueball_spectrum",
+      "to": "m11_confinement_scaling",
+      "role": "evolves_to",
+      "label": "外推热力学极限弦张力",
+      "variant": "emphasis",
+      "is_main_flow": true
+    },
+    {
+      "id": "e13_emonts_to_confinement",
+      "from": "m10_emonts_benchmark",
+      "to": "m11_confinement_scaling",
+      "role": "measures",
+      "label": "临界相变点交叉验证",
+      "variant": "default",
+      "is_main_flow": false
+    },
+    {
+      "id": "e14_winding_to_confinement",
+      "from": "m3_winding_boundary",
+      "to": "m11_confinement_scaling",
+      "role": "measures",
+      "label": "扇区劈裂作为禁闭序参量",
+      "variant": "emphasis",
+      "is_main_flow": false
+    }
+  ],
+  "boundaries": [
+    {
+      "id": "b1_topological_sector",
+      "label": "拓扑超选择主扇区 (w=0) 与边界高度偏置",
+      "type": "topological_sector",
+      "nodes": [
+        "m3_winding_boundary",
+        "m4_itensors_mps_engine",
+        "m7_cylinder_dmrg_campaign"
+      ],
+      "variant": "emphasis"
+    },
+    {
+      "id": "b2_hpc_compute_cluster",
+      "label": "HPC SLURM 计算集群边界 (SCNU / mgmt04)",
+      "type": "computational_domain",
+      "nodes": [
+        "m6_small_cluster_lanczos",
+        "m7_cylinder_dmrg_campaign"
+      ],
+      "variant": "default"
+    }
+  ]
+}

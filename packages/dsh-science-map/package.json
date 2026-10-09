@@ -1,0 +1,37 @@
+{
+  "name": "@suxeca/dsh-science-map",
+  "version": "0.1.0",
+  "description": "Science Map：科研思维与计算流演化地图编译器、认知门禁验证器与 DSH 工具套件",
+  "type": "module",
+  "main": "./lib/index.js",
+  "bin": {
+    "science-map": "./bin/science-map.mjs"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./compiler": "./src/compiler.mjs",
+    "./validator": "./src/validator.mjs",
+    "./schema": "./schemas/science-map.schema.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin",
+    "src",
+    "schemas",
+    "docs",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "doctor": "node bin/science-map.mjs doctor",
+    "test": "node bin/science-map.mjs doctor"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

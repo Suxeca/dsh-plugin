@@ -1,0 +1,17 @@
+{
+  "pass": true,
+  "origin": "remote IP over HTTP",
+  "viewport": "390x844 touch",
+  "checks": [
+    "real Markdown content",
+    "second Markdown and reopen",
+    "floating control hidden",
+    "no browser errors",
+    "manual recovery callback",
+    "no false recovery while spinner loads",
+    "no duplicate recovery UI",
+    "dispose removes UI"
+  ],
+  "evidence": "/home/suxeca/Workspace/dsh-plugin/packages/dsh-mobile-polish/test-evidence",
+  "limitation": "Original Huawei missing-provider state was not reproduced; underlying cause remains unconfirmed."
+}
