@@ -20,15 +20,15 @@ import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { createKeymapStore, matchesBinding } from './keymap.ts'
 import { createOpenStore } from './open-store.ts'
-import { cycleAnchor, offsetTarget, sidebarOrder } from './utils.ts'
+import { currentSessionId, cycleAnchor, offsetTarget, pinnedSessions, sidebarOrder } from './utils.ts'
 import { Switcher } from './switcher.tsx'
-import type { LayoutPort, SessionsPort, SidebarRightPort, SwitcherContext, WorkspacesPort } from './port.ts'
+import type { LayoutPort, SessionsPort, SidebarRightPort, SwitcherContext, UiWorkspacePort, WorkspacesPort } from './port.ts'
 
 /** Services the switcher reads from the context (service names, not modules).
  *  `layout` / `sidebarRight` are intentionally NOT injected: the layout
  *  chords must degrade gracefully (log + no-op) when either service is absent
  *  (non-web profiles), so they resolve lazily behind a guard instead. */
-export const inject = ['sessions', 'workspaces']
+export const inject = ['sessions', 'workspaces', 'uiWorkspace']
 
 /** IME-composition guard: while a CJK
  *  input method owns the key, chords must not fire — modifiers like Ctrl+B
@@ -172,7 +172,21 @@ export function apply(ctx: ClientContext): void {
   // workspace.unarchiveSession, so the ports are the narrow face here.
   const sessions = ctx.sessions as unknown as SessionsPort
   const workspaces = ctx.workspaces as unknown as WorkspacesPort
-  const switcherCtx: SwitcherContext = { sessions, workspaces }
+  const uiWorkspace = (ctx.get('uiWorkspace') ?? (ctx as unknown as { uiWorkspace?: UiWorkspacePort }).uiWorkspace) as UiWorkspacePort | undefined
+
+  const openOfficialShortcuts = (): void => {
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '/',
+        code: 'Slash',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    )
+  }
+
+  const switcherCtx: SwitcherContext = { sessions, workspaces, uiWorkspace, openOfficialShortcuts }
 
   const openStore = createOpenStore()
   const keymapStore = createKeymapStore()
@@ -183,11 +197,31 @@ export function apply(ctx: ClientContext): void {
   let xPrefixArmed = false
   let xPrefixTimer: number | undefined
 
+  let lastToggleTime = 0
+  const guardedToggle = (): void => {
+    const now = Date.now()
+    if (now - lastToggleTime < 180) return
+    lastToggleTime = now
+    openStore.toggle()
+  }
+
   const disarmXPefix = (): void => {
     xPrefixArmed = false
     if (xPrefixTimer !== undefined) {
       window.clearTimeout(xPrefixTimer)
       xPrefixTimer = undefined
+    }
+  }
+
+  let lastNavigatedSessionId: string | undefined
+
+  const navigateToSession = (sessionId: string): void => {
+    lastNavigatedSessionId = sessionId
+    const ui = (ctx.get('uiWorkspace') ?? (ctx as unknown as { uiWorkspace?: UiWorkspacePort }).uiWorkspace) as UiWorkspacePort | undefined
+    if (ui?.openSession) {
+      ui.openSession(sessionId)
+    } else if (sessions.open) {
+      sessions.open(sessionId)
     }
   }
 
@@ -200,10 +234,125 @@ export function apply(ctx: ClientContext): void {
   const switchByOffset = (offset: number): void => {
     const sessionsSnap = sessions.list.getSnapshot()
     const workspacesSnap = workspaces.list.getSnapshot()
-    const entries = sidebarOrder(sessionsSnap, workspacesSnap)
-    const anchor = cycleAnchor(entries, sessionsSnap.current, sessionsSnap.byId)
+    const curId = currentSessionId(sessionsSnap, lastNavigatedSessionId)
+    const entries = sidebarOrder(sessionsSnap, workspacesSnap, { currentId: curId })
+    const anchor = cycleAnchor(entries, curId, sessionsSnap.byId)
     const target = offsetTarget(entries, anchor, offset)
-    if (target !== undefined) sessions.open(target.session.id)
+    if (target !== undefined) navigateToSession(target.session.id)
+  }
+
+  /**
+   * Jump directly to the pinned session, or cycle through pinned sessions
+   * if multiple are pinned and one is already active.
+   */
+  const jumpToPinned = (): void => {
+    const sessionsSnap = sessions.list.getSnapshot()
+    const workspacesSnap = workspaces.list.getSnapshot()
+    const curId = currentSessionId(sessionsSnap, lastNavigatedSessionId)
+    const pinnedList = pinnedSessions(sessionsSnap, workspacesSnap, { currentId: curId })
+    if (pinnedList.length === 0) return
+
+    const currentIndex = pinnedList.findIndex((item) => item.session.id === curId)
+    if (currentIndex !== -1) {
+      const nextIndex = (currentIndex + 1) % pinnedList.length
+      navigateToSession(pinnedList[nextIndex].session.id)
+    } else {
+      navigateToSession(pinnedList[0].session.id)
+    }
+  }
+
+  // Register commands with the official DSH shortcuts catalog so they appear in
+  // Settings → Shortcuts and the Ctrl+/ reference panel for uniform management.
+  const officialShortcuts = ctx.get('shortcuts') as {
+    register(command: {
+      id: string
+      label: () => string
+      aliases: readonly string[]
+      defaults: Readonly<Record<string, { code: string; modifiers: readonly string[] }>>
+      regions: readonly string[]
+      modals: readonly string[]
+      resolve: () => { status: 'handled'; run(): void }
+    }): () => void
+  } | undefined
+
+  if (officialShortcuts !== undefined && typeof officialShortcuts.register === 'function') {
+    ctx.effect(() => {
+      try {
+        const offToggle = officialShortcuts.register({
+          id: 'sessionSwitcher.toggle',
+          label: () => '会话切换：打开/关闭面板',
+          aliases: ['session switcher', 'quick switch', 'ctrl k panel', '切换对话'],
+          defaults: {
+            'web:linux': { code: 'KeyK', modifiers: ['primary'] },
+            'web:windows': { code: 'KeyK', modifiers: ['primary'] },
+            'web:macos': { code: 'KeyK', modifiers: ['primary'] },
+            'desktop:linux': { code: 'KeyK', modifiers: ['primary'] },
+            'desktop:windows': { code: 'KeyK', modifiers: ['primary'] },
+            'desktop:macos': { code: 'KeyK', modifiers: ['primary'] },
+          },
+          regions: ['page', 'editable', 'terminal'],
+          modals: [],
+          resolve: () => ({ status: 'handled', run: guardedToggle }),
+        })
+        const offNext = officialShortcuts.register({
+          id: 'sessionSwitcher.next',
+          label: () => '会话切换：下一个会话',
+          aliases: ['next session', '下一个对话'],
+          defaults: {
+            'web:linux': { code: 'BracketRight', modifiers: ['primary'] },
+            'web:windows': { code: 'BracketRight', modifiers: ['primary'] },
+            'web:macos': { code: 'BracketRight', modifiers: ['primary'] },
+            'desktop:linux': { code: 'BracketRight', modifiers: ['primary'] },
+            'desktop:windows': { code: 'BracketRight', modifiers: ['primary'] },
+            'desktop:macos': { code: 'BracketRight', modifiers: ['primary'] },
+          },
+          regions: ['page', 'editable'],
+          modals: [],
+          resolve: () => ({ status: 'handled', run: () => { switchByOffset(1) } }),
+        })
+        const offPrev = officialShortcuts.register({
+          id: 'sessionSwitcher.prev',
+          label: () => '会话切换：上一个会话',
+          aliases: ['previous session', '上一个对话'],
+          defaults: {
+            'web:linux': { code: 'BracketLeft', modifiers: ['primary'] },
+            'web:windows': { code: 'BracketLeft', modifiers: ['primary'] },
+            'web:macos': { code: 'BracketLeft', modifiers: ['primary'] },
+            'desktop:linux': { code: 'BracketLeft', modifiers: ['primary'] },
+            'desktop:windows': { code: 'BracketLeft', modifiers: ['primary'] },
+            'desktop:macos': { code: 'BracketLeft', modifiers: ['primary'] },
+          },
+          regions: ['page', 'editable'],
+          modals: [],
+          resolve: () => ({ status: 'handled', run: () => { switchByOffset(-1) } }),
+        })
+        const offPinned = officialShortcuts.register({
+          id: 'sessionSwitcher.jumpToPinned',
+          label: () => '会话切换：切换至置顶对话',
+          aliases: ['jump to pinned', 'pinned session', '置顶对话'],
+          defaults: {
+            'web:linux': { code: 'KeyP', modifiers: ['alt'] },
+            'web:windows': { code: 'KeyP', modifiers: ['alt'] },
+            'web:macos': { code: 'KeyP', modifiers: ['alt'] },
+            'desktop:linux': { code: 'KeyP', modifiers: ['alt'] },
+            'desktop:windows': { code: 'KeyP', modifiers: ['alt'] },
+            'desktop:macos': { code: 'KeyP', modifiers: ['alt'] },
+          },
+          regions: ['page', 'editable'],
+          modals: [],
+          resolve: () => ({ status: 'handled', run: jumpToPinned }),
+        })
+        return () => {
+          offToggle()
+          offNext()
+          offPrev()
+          offPinned()
+        }
+      } catch (err) {
+        console.warn('[session-switcher] official shortcuts registration skipped:', err)
+        return () => {}
+      }
+    }, 'session-switcher: official shortcuts')
   }
 
   const onWindowKeyDown = (e: KeyboardEvent): void => {
@@ -238,7 +387,7 @@ export function apply(ctx: ClientContext): void {
     if (previewing) {
       const cancelPreview = (): void => {
         const from = openStore.getSnapshot().previewFromId
-        if (from !== undefined) sessions.open(from)
+        if (from !== undefined) navigateToSession(from)
       }
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -310,14 +459,14 @@ export function apply(ctx: ClientContext): void {
     // Customizable toggle chord (default Ctrl+K / Cmd+K).
     if (matchesBinding(bindings.toggle, e)) {
       e.preventDefault()
-      openStore.toggle()
+      guardedToggle()
       return
     }
     // Fixed safety fallback: Alt+K always opens the palette, so a mis-bound
     // toggle chord can never lock the palette out.
     if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
       e.preventDefault()
-      openStore.toggle()
+      guardedToggle()
       return
     }
     // Customizable cycle chords (default Ctrl+] / Ctrl+[), only while the
@@ -330,6 +479,11 @@ export function apply(ctx: ClientContext): void {
     if (!open && matchesBinding(bindings.prev, e)) {
       e.preventDefault()
       switchByOffset(-1)
+      return
+    }
+    if (!open && matchesBinding(bindings.jumpToPinned, e)) {
+      e.preventDefault()
+      jumpToPinned()
       return
     }
     // Layout chords (defaults: Ctrl+B left / Ctrl+Shift+B right), only while

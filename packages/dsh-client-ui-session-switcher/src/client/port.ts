@@ -19,6 +19,7 @@ export interface SessionSummaryLike {
   running: boolean
   blank: boolean
   updatedAt: number
+  retainedBy?: Readonly<Partial<Record<string, number>>>
   projectionValues?: { sessionStats?: { turns?: number } }
 }
 
@@ -41,6 +42,7 @@ export interface WorkspaceViewLike {
 export interface WorkspaceListStateLike {
   items: readonly WorkspaceViewLike[]
   archivedSessionIds: readonly string[]
+  pinnedSessionIds?: readonly string[]
   phase: string
   recentWorkspaceId?: string
 }
@@ -68,22 +70,37 @@ export interface SessionBindingLike {
 /** The sessions service face the switcher calls. */
 export interface SessionsPort {
   readonly list: SnapshotLike<SessionListStateLike>
-  open(id: string): void
+  open?(id: string): void
   binding(id: string): SessionBindingLike | undefined
+  using?<T>(
+    target: string,
+    options: { source: string },
+    operation: (reference: { binding: SessionBindingLike }) => T | Promise<T>,
+  ): Promise<T>
 }
 
 /** The workspaces service face the switcher calls (incl. unarchiveSession). */
 export interface WorkspacesPort {
   readonly list: SnapshotLike<WorkspaceListStateLike>
-  startSession(workspaceId?: string): void
+  startSession?(workspaceId?: string): void
   archiveSession(sessionId: string): Promise<void>
   unarchiveSession(sessionId: string): Promise<void>
 }
 
-/** The two injected services, as the switcher consumes them (container form, mirroring ctx.sessions / ctx.workspaces). */
+/** The ui-workspace face for UI navigation and session lifecycle commands (ctx.uiWorkspace). */
+export interface UiWorkspacePort {
+  openSession(target: string): void
+  startSession(workspaceId?: string): void
+  archiveSession(sessionId: string, options?: { readonly stopActivity?: boolean }): Promise<void>
+  unarchiveSession(sessionId: string): Promise<void>
+}
+
+/** The services, as the switcher consumes them (container form). */
 export interface SwitcherContext {
   readonly sessions: SessionsPort
   readonly workspaces: WorkspacesPort
+  readonly uiWorkspace?: UiWorkspacePort
+  readonly openOfficialShortcuts?: () => void
 }
 
 /**

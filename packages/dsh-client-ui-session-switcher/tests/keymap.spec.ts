@@ -66,6 +66,7 @@ describe('defaultBindings', () => {
     expect(d.toggle).toMatchObject({ key: 'k', ctrl: true, meta: false })
     expect(d.next).toMatchObject({ key: ']', ctrl: true })
     expect(d.prev).toMatchObject({ key: '[', ctrl: true })
+    expect(d.jumpToPinned).toMatchObject({ key: 'p', alt: true })
     // Layout chords: Ctrl+B left / Ctrl+Shift+B right (the column DSH ships
     // natively as of 0.1.5-rc.1). The bottom-panel and fullscreen chords were
     // retired with better-sidebar and ILayout's fullscreen trio.
@@ -74,7 +75,7 @@ describe('defaultBindings', () => {
     // Ctrl/Cmd+Shift+M toggles the dsh-synapse conversation map.
     expect(d.toggleSessionMap).toMatchObject({ key: 'm', ctrl: true, shift: true, alt: false })
     expect(ACTIONS).toEqual([
-      'toggle', 'next', 'prev',
+      'toggle', 'next', 'prev', 'jumpToPinned',
       'toggleLeftSidebar', 'toggleRightSidebar', 'toggleSessionMap',
     ])
   })

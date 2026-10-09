@@ -15,15 +15,22 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { OpenStore } from './open-store.ts'
 import { SKIN_LABELS, type SkinName, loadSkin, nextSkin, saveSkin } from './skins.ts'
 import {
+  UNGROUPED_KEY,
   archivedSessions,
+  currentSessionId,
   cycleAnchor,
+  getWorkspaceHue,
   paletteItems,
+  recencyOrder,
   relTime,
   rowIndexOf,
   sidebarOrder,
+  timeRecencyLevel,
   titleOf,
   turnCountOf,
+  workspaceColorIndex,
   workspaceIdOwning,
+  type PaletteItem,
   type PaletteRow,
 } from './utils.ts'
 import type { SwitcherContext } from './port.ts'
@@ -41,6 +48,8 @@ import css from './switcher.module.css'
 
 /** localStorage flag recording the one-time readiness-toast dismissal. */
 const TOAST_KEY = 'dsh.sessionSwitcher.toastSeen'
+/** localStorage flag recording whether older/inactive sessions are hidden by default. */
+const HIDE_OLD_KEY = 'dsh.sessionSwitcher.hideInactive'
 
 export interface SwitcherProps {
   readonly ctx: SwitcherContext
@@ -93,10 +102,47 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
   const [skinName, setSkinName] = useState<SkinName>(loadSkin)
   const [configuring, setConfiguring] = useState(false)
   const [captureAction, setCaptureAction] = useState<ActionId | null>(null)
+  const [hideOldSessions, setHideOldSessions] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(HIDE_OLD_KEY) !== '0'
+    } catch {
+      return true
+    }
+  })
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set())
   const inputRef = useRef<HTMLInputElement | null>(null)
   const renameRef = useRef<HTMLInputElement | null>(null)
   const cardRef = useRef<HTMLDivElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
+
+  const toggleHideOldSessions = (): void => {
+    setHideOldSessions((v) => {
+      const next = !v
+      try {
+        localStorage.setItem(HIDE_OLD_KEY, next ? '1' : '0')
+      } catch {
+        /* storage unavailable */
+      }
+      return next
+    })
+  }
+
+  const toggleGroupExpand = (groupKey: string): void => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(groupKey)) next.delete(groupKey)
+      else next.add(groupKey)
+      return next
+    })
+  }
+
+  const jumpToPinnedRow = (): void => {
+    const pinnedIdx = items.findIndex((it) => it.kind === 'row' && pinnedSet.has(it.session.id))
+    if (pinnedIdx !== -1) {
+      const rowIdx = rowPositions.indexOf(pinnedIdx)
+      if (rowIdx !== -1) setIndex(rowIdx)
+    }
+  }
 
   // One-time readiness toast (persisted dismissal), auto-hides.
   useEffect(() => {
@@ -126,7 +172,9 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
   const workspaceItems = workspacesSnap.items ?? []
   const archivedIds = workspacesSnap.archivedSessionIds ?? []
   const archivedSet = useMemo(() => new Set(archivedIds), [archivedIds])
-  const currentId = sessionsSnap.current
+  const pinnedIds = workspacesSnap.pinnedSessionIds ?? []
+  const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds])
+  const currentId = useMemo(() => currentSessionId(sessionsSnap), [sessionsSnap])
 
   /** The workspace owning the current session; falls back to the recent-workspace projection. */
   const currentWorkspaceId = useMemo(() => {
@@ -137,16 +185,36 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     return workspacesSnap.recentWorkspaceId
   }, [currentId, workspaceItems, workspacesSnap.recentWorkspaceId])
 
+  /** Sequential index map per workspace to guarantee every distinct workspace has a unique contrasting color. */
+  const workspaceColorMap = useMemo(() => {
+    const map = new Map<string, number>()
+    let idx = 0
+    for (const w of workspaceItems) {
+      if (!map.has(w.workspaceId)) {
+        map.set(w.workspaceId, idx++)
+      }
+    }
+    return map
+  }, [workspaceItems])
+
   /**
-   * The palette list. Management mode mirrors the sidebar: workspace section
-   * headers with their sessions (recency order). Search and the archived
-   * view are flat lists, matching the sidebar's flat surfaces.
+   * The palette list.
+   * Search mode presents conversations ordered globally by recency so recent
+   * items appear immediately at the top without long scrolls. Older/inactive
+   * sessions are folded into an expandable item when hideOldSessions is true
+   * (non-empty queries automatically bypass folding to search all conversations).
+   * Management mode groups conversations by workspace with section folding.
    */
   const items = useMemo(() => {
     if (searching) {
       const q = query.trim().toLowerCase()
-      const rows = paletteItems(sessionsSnap, workspacesSnap, 'flat').filter((item) => (
-        item.kind === 'row' && (q === '' || titleOf(item.session).toLowerCase().includes(q))
+      const rows = paletteItems(sessionsSnap, workspacesSnap, 'flat', {
+        sort: 'recency',
+        hideStale: q === '' ? hideOldSessions : false,
+        currentId,
+        expandedGroups,
+      }).filter((item) => (
+        item.kind === 'folded' || (item.kind === 'row' && (q === '' || titleOf(item.session).toLowerCase().includes(q)))
       ))
       return rows
     }
@@ -155,8 +223,12 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
         { kind: 'row', ...row } as const
       ))
     }
-    return paletteItems(sessionsSnap, workspacesSnap, 'grouped')
-  }, [sessionsSnap, workspacesSnap, searching, query, showArchived])
+    return paletteItems(sessionsSnap, workspacesSnap, 'grouped', {
+      hideStale: hideOldSessions,
+      currentId,
+      expandedGroups,
+    })
+  }, [sessionsSnap, workspacesSnap, searching, query, showArchived, hideOldSessions, expandedGroups, currentId])
 
   /** Item positions holding a session row, in list order. */
   const rowPositions = useMemo(
@@ -169,13 +241,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
   const selected = index < rowPositions.length ? items[rowPositions[index]] as PaletteRow : null
 
   // Reset transient state each time the palette opens; select the current
-  // conversation by default and focus the card so management-mode shortcuts
-  // land on the panel. The selection is computed against the RESET
-  // management list, never the stale search/archive list still in scope for
-  // this render: closing the palette from search or the archived view leaves
-  // those flags set, and the pre-reset list would miss the current
-  // conversation (landing on row 0) while the reset re-renders the
-  // management list with the selection stuck there.
+  // conversation by default and focus the filter.
   useEffect(() => {
     if (!open) return
     setQuery('')
@@ -188,16 +254,18 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     setConfiguring(false)
     setCaptureAction(null)
     if (keymapStore.getSnapshot().capturing) keymapStore.endCapture()
-    const management = paletteItems(sessionsSnap, workspacesSnap, 'grouped')
-    // Anchor on the current session, or its nearest listed ancestor when the
-    // current row is palette-invisible (subagent children) — the same anchor
-    // the Ctrl+[ / Ctrl+] cycle gesture uses.
+    const initialList = paletteItems(sessionsSnap, workspacesSnap, 'flat', {
+      sort: 'recency',
+      hideStale: hideOldSessions,
+      currentId,
+      expandedGroups,
+    })
     const anchor = cycleAnchor(
-      sidebarOrder(sessionsSnap, workspacesSnap),
+      recencyOrder(sessionsSnap, workspacesSnap),
       currentId,
       sessionsSnap.byId,
     )
-    const rowIndex = rowIndexOf(management, anchor)
+    const rowIndex = rowIndexOf(initialList, anchor)
     setIndex(rowIndex === -1 ? 0 : rowIndex)
     cardRef.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate open-transition snapshot read
@@ -226,7 +294,11 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
   }, [open, index])
 
   const openSession = (sessionId: string): void => {
-    ctx.sessions.open(sessionId)
+    if (ctx.uiWorkspace?.openSession) {
+      ctx.uiWorkspace.openSession(sessionId)
+    } else if (ctx.sessions.open) {
+      ctx.sessions.open(sessionId)
+    }
     openStore.close()
   }
   /** Space-preview the selected conversation: switch to it WITHOUT leaving
@@ -237,23 +309,39 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     if (selected === null) return
     const fromId = currentId
     openStore.enterPreview(selected.session.id, fromId)
-    ctx.sessions.open(selected.session.id)
+    if (ctx.uiWorkspace?.openSession) {
+      ctx.uiWorkspace.openSession(selected.session.id)
+    } else if (ctx.sessions.open) {
+      ctx.sessions.open(selected.session.id)
+    }
   }
   const newConversation = (): void => {
     try {
-      ctx.workspaces.startSession(currentWorkspaceId)
+      if (ctx.uiWorkspace?.startSession) {
+        ctx.uiWorkspace.startSession(currentWorkspaceId)
+      } else if (ctx.workspaces.startSession) {
+        ctx.workspaces.startSession(currentWorkspaceId)
+      } else {
+        throw new Error('未提供新建会话功能')
+      }
     } catch (err) {
       setError(`新建会话失败：${err instanceof Error ? err.message : String(err)}`)
     }
     openStore.close()
   }
   const archiveSession = (sessionId: string): void => {
-    void ctx.workspaces.archiveSession(sessionId).catch((err) => {
+    const p = ctx.uiWorkspace?.archiveSession
+      ? ctx.uiWorkspace.archiveSession(sessionId)
+      : ctx.workspaces.archiveSession(sessionId)
+    void p.catch((err) => {
       setError(`归档失败：${err instanceof Error ? err.message : String(err)}`)
     })
   }
   const unarchiveSession = (sessionId: string): void => {
-    void ctx.workspaces.unarchiveSession(sessionId).catch((err) => {
+    const p = ctx.uiWorkspace?.unarchiveSession
+      ? ctx.uiWorkspace.unarchiveSession(sessionId)
+      : ctx.workspaces.unarchiveSession(sessionId)
+    void p.catch((err) => {
       setError(`取消归档失败：${err instanceof Error ? err.message : String(err)}`)
     })
   }
@@ -273,11 +361,20 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     cancelRename()
     if (id === null || title === '') return
     try {
-      const binding = ctx.sessions.binding(id)
-      const session = binding?.session
-      if (session === undefined) throw new Error('会话不在线，无法重命名')
-      const result = await session.rename(title)
-      if (!result.ok) throw new Error(result.error?.message ?? '重命名被拒绝')
+      if (typeof ctx.sessions.using === 'function') {
+        const result = await ctx.sessions.using(
+          id,
+          { source: 'controllerOperation' },
+          (ref) => ref.binding.session.rename(title),
+        )
+        if (!result.ok) throw new Error(result.error?.message ?? '重命名被拒绝')
+      } else {
+        const binding = ctx.sessions.binding(id)
+        const session = binding?.session
+        if (session === undefined) throw new Error('会话不在线，无法重命名')
+        const result = await session.rename(title)
+        if (!result.ok) throw new Error(result.error?.message ?? '重命名被拒绝')
+      }
     } catch (err) {
       setError(`重命名失败：${err instanceof Error ? err.message : String(err)}`)
     }
@@ -384,12 +481,35 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
       startPreview()
     } else if (e.key === 'Escape') {
       e.preventDefault()
-      if (searching) exitSearch()
-      else if (showArchived) setShowArchived(false)
-      else openStore.close()
+      if (searching) {
+        if (query !== '') setQuery('')
+        else exitSearch()
+      } else if (showArchived) {
+        setShowArchived(false)
+      } else {
+        openStore.close()
+      }
     } else if (matchesBinding(keymap.bindings.toggle, e)) {
       e.preventDefault()
       openStore.close()
+    } else if (searching) {
+      // Search mode chords: quick actions available without leaving the filter.
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        newConversation()
+      } else if (((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'r') || e.key === 'F2') {
+        e.preventDefault()
+        if (selected !== null) startRename(selected.session.id)
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault()
+        if (selected !== null) archiveSession(selected.session.id)
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'h') {
+        e.preventDefault()
+        toggleHideOldSessions()
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault()
+        jumpToPinnedRow()
+      }
     } else if (!searching && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
       // Management mode: single letters are actions, never input.
       const k = e.key.toLowerCase()
@@ -399,6 +519,9 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
       } else if (k === 'n') {
         e.preventDefault()
         newConversation()
+      } else if (k === 'p') {
+        e.preventDefault()
+        jumpToPinnedRow()
       } else if (k === 'a' && !showArchived) {
         e.preventDefault()
         if (selected !== null) archiveSession(selected.session.id)
@@ -411,6 +534,9 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
       } else if (k === 'r') {
         e.preventDefault()
         if (selected !== null) startRename(selected.session.id)
+      } else if (k === 'h') {
+        e.preventDefault()
+        toggleHideOldSessions()
       } else if (k === 'k') {
         e.preventDefault()
         openSettings()
@@ -420,14 +546,21 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
 
   const renderRow = (row: PaletteRow, rowIndex: number): JSX.Element => {
     const session = row.session
+    const wsId = row.workspace?.workspaceId
+    const hue = getWorkspaceHue(wsId, workspaceColorMap)
+    const isColored = hue !== null
+    const wsStyle = isColored ? ({ '--ws-h': hue } as React.CSSProperties) : undefined
+    const wsClass = isColored ? `${css.wsTag} ${css.wsTagColored}` : `${css.wsTag} ${css.wsTagUngrouped}`
+    const wsLabel = row.workspace === undefined ? '未分组' : row.workspace.title
+
     const turns = turnCountOf(session)
-    const meta = [
-      row.workspace === undefined ? '未分组' : row.workspace.title,
-      turns === undefined ? null : `${turns} 轮`,
-      relTime(session.updatedAt),
-    ].filter(Boolean).join(' · ')
+    const timeLevel = timeRecencyLevel(session.updatedAt)
+    const timeClassKey = `timeL${timeLevel}`
+    const timeString = relTime(session.updatedAt)
+
     const isCurrent = session.id === currentId
     const archived = archivedSet.has(session.id)
+    const isPinned = pinnedSet.has(session.id)
     return (
       <div
         key={session.id}
@@ -439,10 +572,41 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
         <span className={session.running ? css.dot : `${css.dot} ${css.dotIdle}`} />
         <div className={css.main}>
           <div className={css.rowTitle}>{titleOf(session)}</div>
-          <div className={css.rowMeta}>{meta}</div>
+          <div className={css.rowMeta}>
+            <span className={wsClass} style={wsStyle}>
+              {wsLabel}
+            </span>
+            {turns !== undefined && (
+              <>
+                <span className={css.metaDivider}>·</span>
+                <span className={css.metaItem}>{turns} 轮</span>
+              </>
+            )}
+            {timeString !== '' && (
+              <>
+                <span className={css.metaDivider}>·</span>
+                <span className={`${css.timeBadge} ${css[timeClassKey]}`}>
+                  {timeLevel <= 1 && <span className={css.liveDot} />}
+                  {timeString}
+                </span>
+              </>
+            )}
+          </div>
         </div>
         {isCurrent && <span className={`${css.tag} ${css.tagCurrent}`}>当前</span>}
+        {isPinned && <span className={`${css.tag} ${css.tagPinned}`}>📌 置顶</span>}
         {archived && <span className={css.tag}>已归档</span>}
+        <button
+          type="button"
+          className={css.rowAction}
+          onClick={(e) => {
+            e.stopPropagation()
+            startRename(session.id)
+          }}
+          title="重命名对话"
+        >
+          重命名
+        </button>
         {archived ? (
           <button
             type="button"
@@ -474,8 +638,20 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
   if (configuring) {
     body = (
       <div className={css.settings}>
+        <div className={css.officialShortcutsBar}>
+          <button
+            type="button"
+            className={css.officialShortcutsBtn}
+            onClick={() => {
+              openStore.close()
+              ctx.openOfficialShortcuts?.()
+            }}
+          >
+            ⚡ 打开系统快捷键设置中心 (Ctrl+/)
+          </button>
+        </div>
         <div className={css.settingsHint}>
-          点「改键」后直接按下新组合键即可覆盖，Esc 取消。Alt+K 始终可打开面板（不可改）。
+          会话面板快捷键已接入 DSH 官方命令系统，可点击上方按钮前往系统中心统一修改并检测冲突；亦可在下方快速覆盖面板本地按键，Esc 取消。
         </div>
         {ACTIONS.map((action) => {
           const binding = keymap.bindings[action]
@@ -522,10 +698,28 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
       <div className={css.list} ref={listRef}>
         {items.map((item) => {
           if (item.kind === 'header') {
+            const wsId = item.key === UNGROUPED_KEY ? undefined : item.key
+            const hue = getWorkspaceHue(wsId, workspaceColorMap)
+            const isColored = hue !== null
+            const wsStyle = isColored ? ({ '--ws-h': hue } as React.CSSProperties) : undefined
+            const wsClass = isColored ? `${css.wsTag} ${css.wsTagColored}` : `${css.wsTag} ${css.wsTagUngrouped}`
             return (
               <div key={item.key} className={css.groupHeader}>
-                <span className={css.groupLabel}>{item.label}</span>
+                <span className={wsClass} style={wsStyle}>{item.label}</span>
                 <span className={css.groupCount}>{item.count}</span>
+              </div>
+            )
+          }
+          if (item.kind === 'folded') {
+            return (
+              <div
+                key={item.key}
+                className={css.foldedRow}
+                onClick={() => toggleGroupExpand(item.groupKey)}
+                title={item.expanded ? '点击收起较早对话' : '点击展开较早对话'}
+              >
+                <span className={css.foldedIcon}>{item.expanded ? '▼' : '▶'}</span>
+                <span className={css.foldedLabel}>{item.label}</span>
               </div>
             )
           }
@@ -538,15 +732,20 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
   }
 
   const toggleLabel = formatBinding(keymap.bindings.toggle)
+  const hasPinned = pinnedIds.length > 0
   const hint = configuring ? (
     <div className={css.footer}>
       <span className={css.footerAction}><Kbd>Esc</Kbd>返回</span>
     </div>
   ) : searching ? (
     <div className={css.footer}>
-      <span className={css.footerAction}><Kbd>输入</Kbd>过滤标题</span>
-      <span className={css.footerAction}><Kbd>Enter</Kbd>打开</span>
-      <span className={css.footerAction}><Kbd>Esc</Kbd>返回管理</span>
+      <span className={css.footerAction}><Kbd>↑↓</Kbd>选择<Kbd>Enter</Kbd>打开</span>
+      <span className={css.footerAction}><Kbd>Ctrl+N</Kbd>新建</span>
+      <span className={css.footerAction}><Kbd>Ctrl+R</Kbd>重命名</span>
+      <span className={css.footerAction}><Kbd>Alt+A</Kbd>归档</span>
+      {hasPinned && <span className={css.footerAction}><Kbd>Alt+P</Kbd>置顶</span>}
+      <span className={css.footerAction}><Kbd>Alt+H</Kbd>{hideOldSessions ? '显示全部' : '只看近期'}</span>
+      <span className={css.footerAction}><Kbd>Esc</Kbd>{query ? '清空' : '管理模式'}</span>
     </div>
   ) : (
     <div className={css.footer}>
@@ -554,6 +753,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
       <span className={css.footerAction}><Kbd>空格</Kbd>预览</span>
       <span className={css.footerAction}><Kbd>S</Kbd>搜索</span>
       <span className={css.footerAction}><Kbd>N</Kbd>新建</span>
+      {hasPinned && <span className={css.footerAction}><Kbd>P</Kbd>置顶</span>}
       {showArchived ? (
         <>
           <span className={css.footerAction}><Kbd>U</Kbd>取消归档</span>
@@ -566,6 +766,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
         </>
       )}
       <span className={css.footerAction}><Kbd>R</Kbd>重命名</span>
+      <span className={css.footerAction}><Kbd>H</Kbd>{hideOldSessions ? '显示全部' : '只看近期'}</span>
       <span className={css.footerAction}><Kbd>K</Kbd>快捷键</span>
       <span className={css.footerAction}><Kbd>Esc</Kbd>{showArchived ? '返回列表' : '关闭'}</span>
       <span className={`${css.footerAction} ${css.footerPush}`}>
@@ -590,7 +791,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     <input
       ref={inputRef}
       className={css.input}
-      placeholder="输入标题过滤对话…"
+      placeholder="输入标题过滤对话…（支持快捷键：Ctrl+N新建 / Ctrl+R重命名 / Alt+H切换近期）"
       value={query}
       onChange={(e) => setQuery(e.target.value)}
     />
@@ -615,6 +816,14 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
           {searching && <span className={css.modeTag}>搜索</span>}
           {renaming && <span className={css.modeTag}>重命名</span>}
           {configuring && <span className={css.modeTag}>快捷键</span>}
+          <button
+            type="button"
+            className={`${css.skinButton} ${hideOldSessions ? css.activeButton : ''}`}
+            onClick={toggleHideOldSessions}
+            title={hideOldSessions ? '当前已隐藏 7 天前较早对话（点击查看全部）' : '当前显示全部对话（点击隐藏 7 天前较早对话）'}
+          >
+            {hideOldSessions ? '🕒 近期对话' : '🕒 全部对话'}
+          </button>
           <button
             type="button"
             className={css.skinButton}

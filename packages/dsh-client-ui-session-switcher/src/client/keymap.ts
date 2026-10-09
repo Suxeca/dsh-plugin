@@ -18,6 +18,7 @@ export const ACTIONS = [
   'toggle',
   'next',
   'prev',
+  'jumpToPinned',
   'toggleLeftSidebar',
   'toggleRightSidebar',
   'toggleSessionMap',
@@ -38,6 +39,7 @@ export const ACTION_LABELS: Record<ActionId, string> = {
   toggle: '打开面板',
   next: '下一个对话',
   prev: '上一个对话',
+  jumpToPinned: '切换至置顶对话',
   toggleLeftSidebar: '折叠/展开左侧栏',
   toggleRightSidebar: '折叠/展开右侧栏',
   toggleSessionMap: '切换 对话/会话地图',
@@ -80,6 +82,7 @@ export function defaultBindings(): Record<ActionId, Binding> {
     toggle: { key: 'k', ...primary(), shift: false, alt: false },
     next: { key: ']', ...primary(), shift: false, alt: false },
     prev: { key: '[', ...primary(), shift: false, alt: false },
+    jumpToPinned: { key: 'p', ctrl: false, meta: false, shift: false, alt: true },
     // VSCode-style: Ctrl/Cmd+B = toggle sidebar; Shift flips to the right
     // column DSH itself ships.
     toggleLeftSidebar: { key: 'b', ...primary(), shift: false, alt: false },
