@@ -410,3 +410,11 @@ pnpm build          # 构建全部插件
 | [`third-party/dsh-smooth-stream/FIX-NOTES.md`](third-party/dsh-smooth-stream/FIX-NOTES.md) | smooth-stream CJK 重叠修复记录（根因/验证/PR） |
 | [`dsh-architecture-map.html`](dsh-architecture-map.html) / [`dsh-venn.html`](dsh-venn.html) | DSH 架构可视化 |
 | deepseek-harness `docs/` | 上游参考（cordis 教程、extension-cookbook、capability-seams） |
+
+---
+
+## 许可
+
+本仓库自有代码（`packages/`、`presets/`、`scripts/`、`shared/`）以根目录 [`LICENSE`](LICENSE) 的 **MIT** 授权。
+
+`third-party/` 下是收录的第三方插件，**各自保留上游许可证，不受根 LICENSE 影响**；对应关系见各目录内的 `LICENSE` 与上文的「收录插件」表。少数包在各自 `package.json` 中声明为 BSD-3-Clause，以该文件为准。
