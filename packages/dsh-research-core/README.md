@@ -55,3 +55,4 @@ bash scripts/build.sh
 # 在 DSH 会话中调用：
 dev_inject_plugin "/path/to/packages/dsh-research-core"
 ```
+<img width="1495" height="1156" alt="image" src="https://github.com/user-attachments/assets/c5570e3b-bdf1-4946-a5f7-25a3eadc9750" />
