@@ -1,0 +1,11 @@
+# Profile bundle: the account-pinned Codex subagent provider.
+# The plugin spreads the upstream `@deepseek-ai/dsh-subagent-codex` schema and
+# defaults providerName to `codex-gpt55` and model to `gpt-5.5`, so the row needs
+# no config; @dsh-external/dsh-codex-bridge resolves that provider name at call
+# time (its `providers` default is ['codex-gpt55', 'codex']).
+- insert:
+    - id: subagent-codex-gpt55
+      name: '@dsh-external/dsh-codex-gpt55'
+      config:
+        providerName: codex-gpt55
+        model: gpt-5.5

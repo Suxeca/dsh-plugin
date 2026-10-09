@@ -91,6 +91,15 @@ export const FOLLOW_STATUS_RUNWAY_PX = 48
 /** How long a gesture keeps `isUserInteracting` so the next scroll can unpin. */
 export const FOLLOW_GESTURE_MS = 800
 
+/**
+ * Idle probe interval for a follow owner that is neither streaming, following,
+ * nor under a reader gesture. Such an owner still has to notice when it becomes
+ * live again, but waking it every frame re-reads scrollHeight/clientHeight and
+ * forces a synchronous layout: at 60fps across every historical row, that alone
+ * saturates the main thread of a long conversation.
+ */
+export const FOLLOW_IDLE_PROBE_MS = 300
+
 /** Sub-pixel settle threshold; clearing below this cannot produce a visible rebound. */
 export const FOLLOW_SETTLE_EPSILON_PX = 0.25
 
@@ -593,6 +602,8 @@ export function useConversationFollow(
     const owner = {}
     const generation = ++followGeneration
     let rafId = 0
+    let idleTimer: ReturnType<typeof setTimeout> | null = null
+    let live = true
     let last = performance.now()
     let following = true
     let primed = false
@@ -613,6 +624,50 @@ export function useConversationFollow(
       if (!entrancePending) return
       entrancePending = false
       onEntranceSettledRef.current?.()
+    }
+
+    /**
+     * Schedule the next pass. A live owner (streaming, following, or under a
+     * reader gesture) needs per-frame resolution; an idle one only needs to
+     * notice that it became live again. Running every idle historical row at
+     * 60fps is what saturates the main thread: each pass re-reads
+     * `scrollHeight`/`clientHeight`, forcing a synchronous layout.
+     */
+    const scheduleNext = (): void => {
+      if (rafId !== 0 || idleTimer !== null) return
+      // Re-derive the cadence from live state: only streaming, following, or an
+      // active gesture needs per-frame resolution.
+      live = activeRef.current || following || interacting
+      if (live) {
+        rafId = requestAnimationFrame(frame)
+        return
+      }
+      idleTimer = setTimeout(() => {
+        idleTimer = null
+        frame()
+      }, FOLLOW_IDLE_PROBE_MS)
+    }
+
+    /** Promote this owner to per-frame mode and run a pass immediately. */
+    const wake = (): void => {
+      live = true
+      if (idleTimer !== null) {
+        clearTimeout(idleTimer)
+        idleTimer = null
+      }
+      if (rafId === 0) rafId = requestAnimationFrame(frame)
+    }
+
+    const cancelScheduled = (): void => {
+      live = false
+      if (rafId !== 0) {
+        cancelAnimationFrame(rafId)
+        rafId = 0
+      }
+      if (idleTimer !== null) {
+        clearTimeout(idleTimer)
+        idleTimer = null
+      }
     }
 
     const updateRevealScale = (next: HTMLElement, elapsedMs: number, urgent = false): void => {
@@ -669,6 +724,10 @@ export function useConversationFollow(
     }
 
     const markGesture = (event: Event): void => {
+      // A reader gesture outranks the idle probe: take per-frame ownership now
+      // so the unpin decision lands on this frame instead of up to
+      // FOLLOW_IDLE_PROBE_MS later.
+      wake()
       interacting = true
       if (event.type === 'wheel') {
         const deltaY = (event as WheelEvent).deltaY
@@ -696,6 +755,8 @@ export function useConversationFollow(
 
     const restoreBeforePaint = (): void => {
       if (!following || port === null || !isLeader(port)) return
+      // Layout moved under a live follow: resume per-frame work.
+      wake()
       invalidatePaintLimit(port)
       animatedH = applyVisual(port, animatedH, reservePx, velocityPxPerSec)
       updateRevealScale(port, 0, true)
@@ -720,8 +781,10 @@ export function useConversationFollow(
       }
     }
 
-    const frame = (now: number) => {
-      rafId = requestAnimationFrame(frame)
+    const frame = (): void => {
+      rafId = 0
+      idleTimer = null
+      const now = performance.now()
       // Spring time is clamped so one paint after a stall cannot teleport the
       // transcript. Runway response uses real elapsed time, otherwise long
       // frames would open paint room more slowly precisely when it is needed.
@@ -731,11 +794,11 @@ export function useConversationFollow(
       const root = rootRef.current
       if (root === null) return
       const nextPort = root.closest<HTMLElement>('[data-conversation-scroll]')
-      if (nextPort === null) return
+      if (nextPort === null) { scheduleNext(); return }
       bindPort(nextPort)
       // A hidden/unmeasured port has no meaningful floor yet. Keep this owner
-      // unprimed and let the already-scheduled RAF initialize it after layout.
-      if (nextPort.clientHeight <= 0) return
+      // unprimed and let the next scheduled pass initialize it after layout.
+      if (nextPort.clientHeight <= 0) { scheduleNext(); return }
 
       const floor = Math.max(0, nextPort.scrollHeight - nextPort.clientHeight)
       const reportedLag = floor - nextPort.scrollTop
@@ -785,6 +848,7 @@ export function useConversationFollow(
           finishEntrance()
         }
         primed = true
+        scheduleNext()
         return
       }
 
@@ -811,13 +875,26 @@ export function useConversationFollow(
         finishEntrance()
       }
 
+      if (!activeRef.current && !following && !interacting) {
+        // Nothing is left to drive: collapse the entrance so the effect
+        // dependency (`active || entrance`) can settle and this owner stops
+        // scheduling work entirely, keeping only the idle probe alive. Without
+        // this, an owner that entered while the reader was scrolled up stays
+        // "entering" forever and never releases its per-frame work.
+        finishEntrance()
+        followScrollLedgers.set(nextPort, nextPort.scrollTop)
+        scheduleNext()
+        return
+      }
       if (!activeRef.current || !following) {
         followScrollLedgers.set(nextPort, nextPort.scrollTop)
+        scheduleNext()
         return
       }
       hold(nextPort)
       if (!isLeader(nextPort)) {
         finishEntrance()
+        scheduleNext()
         return
       }
 
@@ -856,15 +933,16 @@ export function useConversationFollow(
         nextPort.scrollHeight - animatedH - runwayOffsetOf(nextPort),
       )
       if (remainingEntranceLag <= FOLLOW_SETTLE_EPSILON_PX) finishEntrance()
+      scheduleNext()
     }
 
     // Prime ownership and the final committed height in this layout phase.
     // A producer-complete text arm can mount and drain before the next RAF;
     // deferring this first pass would let it unmount unprimed after replacing
     // the previous owner, leaving a large final append at the old scrollTop.
-    frame(performance.now())
+    frame()
     return () => {
-      cancelAnimationFrame(rafId)
+      cancelScheduled()
       if (interactTimer !== null) clearTimeout(interactTimer)
       resize?.disconnect()
       if (port !== null) {

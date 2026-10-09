@@ -7,6 +7,8 @@ import Schema from 'schemastery'
 
 export const name = 'synapse'
 
+export const inject = ['webServer']
+
 export const Config = Schema.object({
   dataFile: Schema.string().description('工作区与卡片布局持久化 JSON 路径'),
   mapDirectory: Schema.string().description('地图书架目录路径'),
@@ -15,7 +17,14 @@ export const Config = Schema.object({
   trustedHosts: Schema.array(Schema.string()).default([]).description('额外放行的 Host 名单'),
 })
 
-const MAX_BODY_BYTES = 32 * 1024
+// Request-body ceiling for the JSON API. The session-sync snapshot carries one
+// record per DSH session in the profile (~180 bytes each), so a machine with a
+// few hundred sessions legitimately exceeds 100 KB. The previous 32 KB ceiling
+// rejected that snapshot outright and, because the reader bailed out of the
+// request stream mid-way, left the kernel receive buffer permanently full — the
+// stalled sockets then consumed the browser's per-origin connection budget and
+// made unrelated requests queue for seconds.
+const MAX_BODY_BYTES = 8 * 1024 * 1024
 const MAX_TITLE_LENGTH = 120
 const MAX_NOTE_LENGTH = 4_000
 const TOPIC_COLORS = ['#0f766e', '#2563eb', '#be123c', '#7c3aed', '#b45309']
@@ -746,11 +755,19 @@ function workspaceTitle(cwd, fallbackTitle) {
 async function readJson(req) {
   const chunks = []
   let length = 0
+  let overflow = false
   for await (const chunk of req) {
     length += chunk.length
-    if (length > MAX_BODY_BYTES) throw new InputError('请求内容过大')
+    if (length > MAX_BODY_BYTES) {
+      // Drain the rest of the stream before failing. Bailing out here leaves
+      // unread bytes in the socket's receive buffer for the life of the
+      // connection, and a client that retries keeps adding more.
+      overflow = true
+      continue
+    }
     chunks.push(chunk)
   }
+  if (overflow) throw new InputError('请求内容过大')
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { throw new InputError('请求不是有效 JSON') }
 }
 

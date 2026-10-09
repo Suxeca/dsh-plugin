@@ -1,0 +1,37 @@
+# memsearch-dsh bundle patch: inserts the memsearch plugin into a DSH
+# profile's plugin tree.
+#
+# This patch is applied as one extra layer when the package is installed via
+# `dsh plugin --profile <name> add @zilliz/memsearch-dsh` (npm) or a local
+# path (see README.md). A later user override in the profile's own
+# cordis.patch.yml can address the same `id` to tune `config`, and removing
+# the dependency removes the row.
+#
+# Note: `name` is the package name the cordis loader imports. It MUST equal
+# the npm package name (@zilliz/memsearch-dsh) — a path install links the
+# checkout under whatever name package.json declares, and `dsh plugin add`
+# installs the scoped name, so both resolve to the same string.
+
+- insert:
+    - id: memsearch
+      name: '@zilliz/memsearch-dsh'
+      config:
+        # Optional overrides — see README.md for the full set. Everything else
+        # (summarize provider/model, Milvus, collection, memory dir) comes from
+        # memsearch config / environment, mirroring the other platform plugins.
+        #   captureEnabled (bool, default true)   — capture completed turns
+        #   injectEnabled (bool, default true)    — inject relevant memory
+        #   summarizeEnabled (bool, default true) — summarize turns before writing
+        #   summarizeMode (string, default 'auto')
+        #       -> 'auto'         if [plugins.dsh.summarize] provider is set in
+        #                          memsearch config → custom-llm, else
+        #                          dsh-headless (zero-config)
+        #       -> 'dsh-headless' one-shot dsh headless agent; the model is the
+        #                          user's DSH default from settings.yaml
+        #                          `agent-default-model`. Missing CLI fails
+        #                          visibly (unavailable note), never a silent
+        #                          switch to another backend.
+        #       -> 'custom-llm'   reuse memsearch [llm.providers.*] (lightweight
+        #                          direct LLM call; provider/model from
+        #                          [plugins.dsh.summarize] in memsearch config)
+        {}

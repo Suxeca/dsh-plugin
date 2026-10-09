@@ -35,7 +35,7 @@ window.__ModuleLoader__.load({
       ]
     }
 
-    module.exports.inject = ['sessions', 'workspaces']
+    module.exports.inject = ['sessions', 'workspaces', 'uiConversation']
     module.exports.apply = ctx => {
       const prompt = async (sessionId, text) => {
         const scope = ctx.sessions.scope(sessionId)
@@ -47,7 +47,7 @@ window.__ModuleLoader__.load({
       const historyText = blocks => {
         if (!Array.isArray(blocks)) return ''
         return blocks
-          .filter(block => block?.type === 'text' && typeof block.text === 'string')
+          .filter(block => (block?.type === 'text' || block?.kind === 'text') && typeof block.text === 'string')
           .map(block => block.text)
           .filter(Boolean)
           .join('\n')
@@ -55,7 +55,7 @@ window.__ModuleLoader__.load({
       const assistantText = blocks => {
         if (!Array.isArray(blocks)) return ''
         return blocks
-          .filter(block => block?.kind === 'text' && typeof block.text === 'string')
+          .filter(block => (block?.kind === 'text' || block?.type === 'text') && typeof block.text === 'string')
           .map(block => block.text)
           .filter(Boolean)
           .join('\n')
@@ -69,13 +69,15 @@ window.__ModuleLoader__.load({
           // repeating it here would create a duplicate left-to-right row. The
           // cut is the FIRST event owned by the branch, so keep >= cut.
           if (cut !== undefined && Number.isInteger(node?.seq) && node.seq < cut) return []
-          if (node?.kind === 'user') {
-            const text = historyText(node.content)
+          if (node?.kind === 'user' || node?.type === 'user/message') {
+            const content = node.content ?? node.data?.message?.content ?? node.data?.content
+            const text = historyText(content)
             if (text.trimStart().startsWith('Current runtime context. This snapshot supersedes earlier runtime-context snapshots.')) return []
             return text.trim() === '' ? [] : [{ kind: 'user', text: text.slice(0, 10_000), at: node.time, sourceSeq: node.seq }]
           }
-          if (node?.kind === 'assistant') {
-            const text = assistantText(node.blocks)
+          if (node?.kind === 'assistant' || node?.type === 'assistant/message') {
+            const blocks = node.blocks ?? node.data?.message?.content ?? node.data?.content
+            const text = assistantText(blocks)
             return text.trim() === '' ? [] : [{ kind: 'assistant', text: text.slice(0, 10_000), at: node.time, sourceSeq: node.seq }]
           }
           if (node?.kind === 'turn-error') {
@@ -108,14 +110,33 @@ window.__ModuleLoader__.load({
           snapshot = session.getSnapshot()
           pages++
         }
+
+        let nodes = snapshot.nodes
+        if (!Array.isArray(nodes) || nodes.length === 0) {
+          if (ctx.uiConversation) {
+            try {
+              const conversation = ctx.uiConversation.binding(sessionId)
+              const chatTarget = conversation?.target('chat')
+              const chatSnap = chatTarget?.getSnapshot()
+              nodes = chatSnap?.legacy?.nodes ?? chatSnap?.nodes?.values?.() ?? []
+            } catch {
+              // fall back
+            }
+          }
+          if (!Array.isArray(nodes) || nodes.length === 0) {
+            const eventEntries = session.eventSource?.getSnapshot?.()?.entries ?? []
+            nodes = eventEntries.map(e => e.event ?? e)
+          }
+        }
+        snapshot = { ...snapshot, nodes: Array.isArray(nodes) && nodes.length > 0 ? nodes : snapshot.nodes }
         return messagesFromNodes(snapshot.nodes, atSeq)
       }
       const style = document.createElement('style')
-      style.textContent = '.dsh-synapse-switch{position:fixed;z-index:95;top:max(12px,env(safe-area-inset-top));left:50%;display:flex;gap:2px;transform:translateX(-50%);border:1px solid #d1d5db;border-radius:999px;background:rgba(255,255,255,.96);padding:3px;backdrop-filter:blur(12px);box-shadow:0 2px 10px rgba(0,0,0,.08)}.dsh-synapse-switch button{height:28px;border:0;border-radius:999px;background:transparent;padding:0 11px;color:#6b7280;font:600 12px Inter,system-ui,sans-serif;cursor:pointer;white-space:nowrap}.dsh-synapse-switch button:hover{background:#f3f4f6;color:#111827}.dsh-synapse-switch button.active{background:#111827;color:#fff}.dsh-synapse-switch button:focus-visible{outline:2px solid #111827;outline-offset:2px}.dsh-synapse-overlay{position:fixed;z-index:100;inset:0;background:#f5f7fa}.dsh-synapse-overlay.is-opening{visibility:hidden}.dsh-synapse-overlay[hidden]{display:none}.dsh-synapse-overlay iframe{display:block;width:100%;height:100%;border:0}@media (max-width:560px){.dsh-synapse-switch{top:max(8px,env(safe-area-inset-top));height:36px;padding:3px}.dsh-synapse-switch button{height:28px;padding:0 10px;font-size:12px}}'
+      style.textContent = '.dsh-synapse-switch{position:fixed;z-index:95;top:max(8px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;box-sizing:border-box;padding:1px;border:1px solid rgba(255,255,255,.18);border-radius:50%;background:rgba(15,23,42,.88);box-shadow:0 2px 10px rgba(0,0,0,.35);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);overflow:hidden;gap:0;touch-action:manipulation;user-select:none}.dsh-synapse-switch button{width:15px;height:30px;min-width:0;border:0;background:transparent;padding:0;display:inline-flex;align-items:center;justify-content:center;color:#94a3b8;cursor:pointer;transition:all .2s cubic-bezier(0.4,0,0.2,1)}.dsh-synapse-switch button[data-view="dialog"]{border-radius:15px 0 0 15px;padding-left:2px}.dsh-synapse-switch button[data-view="map"]{border-radius:0 15px 15px 0;padding-right:2px}.dsh-synapse-switch button[data-view="dialog"].active{background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;box-shadow:0 0 8px rgba(245,158,11,.6)}.dsh-synapse-switch button[data-view="map"].active{background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;box-shadow:0 0 8px rgba(99,102,241,.6)}.dsh-synapse-switch button:hover:not(.active){color:#f1f5f9;background:rgba(255,255,255,.08)}.dsh-synapse-overlay{position:fixed;z-index:100;inset:0;background:#0f172a}.dsh-synapse-overlay.is-opening{visibility:hidden}.dsh-synapse-overlay[hidden]{display:none}.dsh-synapse-overlay iframe{display:block;width:100%;height:100%;border:0}'
       document.head.append(style)
       const host = document.createElement('div')
       host.className = 'dsh-synapse-host'
-      host.innerHTML = '<div class="dsh-synapse-switch" role="group" aria-label="视图切换"><button type="button" data-view="dialog" class="active" aria-pressed="true">对话</button><button type="button" data-view="map" aria-pressed="false">会话地图</button></div><section class="dsh-synapse-overlay" hidden><iframe title="会话地图" src="/synapse/"></iframe></section>'
+      host.innerHTML = '<div class="dsh-synapse-switch" role="group" aria-label="日月灯视图切换"><button type="button" data-view="dialog" class="active" aria-pressed="true" title="对话 (日灯)"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></button><button type="button" data-view="map" aria-pressed="false" title="会话地图 (月灯)"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button></div><section class="dsh-synapse-overlay" hidden><iframe title="会话地图" src="/synapse/"></iframe></section>'
       document.body.append(host)
       const dialogButton = host.querySelector('[data-view="dialog"]')
       const mapButton = host.querySelector('[data-view="map"]')
@@ -150,7 +171,6 @@ window.__ModuleLoader__.load({
         unsubscribeLiveSessions()
       }
       const send = (type, payload) => { frame.contentWindow?.postMessage({ source: 'dsh-synapse', type, ...payload }, location.origin) }
-      let syncQueued = false
       let knownSessionIds = new Set()
       const liveUnsubscribers = new Map()
       const syncLiveSessions = () => {
@@ -163,7 +183,20 @@ window.__ModuleLoader__.load({
           const publish = () => {
             if (overlay.hidden) return
             const state = session.getSnapshot()
-            const text = state.partial?.blocks.filter(block => block.kind === 'text').map(block => block.text).join('\n') ?? ''
+            let text = ''
+            if (ctx.uiConversation) {
+              try {
+                const conversation = ctx.uiConversation.binding(id)
+                const chatTarget = conversation?.target('chat')
+                const chatSnap = chatTarget?.getSnapshot()
+                text = chatSnap?.legacy?.partial?.blocks?.filter(block => block.kind === 'text').map(block => block.text).join('\n') ?? ''
+              } catch {
+                // fall through
+              }
+            }
+            if (!text && state.partial?.blocks) {
+              text = state.partial.blocks.filter(block => block?.kind === 'text').map(block => block.text).join('\n') ?? ''
+            }
             send('synapse:live-reply', { sessionId: id, running: state.running, text })
           }
           liveUnsubscribers.set(id, session.subscribe(publish))
@@ -171,26 +204,50 @@ window.__ModuleLoader__.load({
         }
         for (const [id, unsubscribe] of liveUnsubscribers) if (!snapshot.ids.includes(id)) { unsubscribe(); liveUnsubscribers.delete(id) }
       }
+      // The session snapshot carries one record per session in the profile, so
+      // it is by far the largest request this bridge makes (~120 KB on a few
+      // hundred sessions). It must not be re-sent for every list notification:
+      // a streaming turn mutates the list continuously, and a rejected request
+      // parks a socket from the browser's small per-origin pool until it is
+      // reaped, which starves unrelated requests of connections.
+      const SESSIONS_SYNC_MIN_INTERVAL_MS = 5_000
+      let sessionsSyncTimer = 0
+      let lastSessionsSyncAt = 0
+      let lastSessionsSignature = ''
+      const sendSessionsSync = () => {
+        const sessions = sessionSnapshot(ctx)
+        const sessionIds = new Set(sessions.map(session => session.id))
+        const removedSessionIds = [...knownSessionIds].filter(id => !sessionIds.has(id))
+        knownSessionIds = sessionIds
+        // DSH-native archive set: the workspace registry hides these sessions
+        // from grouping; mirror it server-side so archived conversations
+        // never become (or remain) canvas nodes.
+        const archivedSessionIds = ctx.workspaces.list.getSnapshot().archivedSessionIds ?? []
+        const body = JSON.stringify({ sessions, removedSessionIds, archivedSessionIds })
+        // Nothing changed since the last accepted snapshot: skip the round trip.
+        if (body === lastSessionsSignature) return
+        lastSessionsSignature = body
+        lastSessionsSyncAt = Date.now()
+        void fetch('/synapse/api/sessions/sync', { method: 'POST', headers: { 'content-type': 'application/json' }, body }).catch(() => {})
+      }
       const syncSessions = () => {
-        if (syncQueued) return
-        syncQueued = true
-        queueMicrotask(() => {
-          syncQueued = false
-          const sessions = sessionSnapshot(ctx)
-          const sessionIds = new Set(sessions.map(session => session.id))
-          const removedSessionIds = [...knownSessionIds].filter(id => !sessionIds.has(id))
-          knownSessionIds = sessionIds
-          // DSH-native archive set: the workspace registry hides these sessions
-          // from grouping; mirror it server-side so archived conversations
-          // never become (or remain) canvas nodes.
-          const archivedSessionIds = ctx.workspaces.list.getSnapshot().archivedSessionIds ?? []
-          void fetch('/synapse/api/sessions/sync', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessions, removedSessionIds, archivedSessionIds }) }).catch(() => {})
-        })
+        if (sessionsSyncTimer !== 0) return
+        const elapsed = Date.now() - lastSessionsSyncAt
+        if (elapsed >= SESSIONS_SYNC_MIN_INTERVAL_MS) {
+          sendSessionsSync()
+          return
+        }
+        // Coalesce the burst; the timer reads the list again when it fires, so
+        // the final state is never dropped.
+        sessionsSyncTimer = window.setTimeout(() => {
+          sessionsSyncTimer = 0
+          sendSessionsSync()
+        }, SESSIONS_SYNC_MIN_INTERVAL_MS - elapsed)
       }
       const syncCurrentSession = () => {
         syncSessions()
-        syncLiveSessions()
         if (!overlay.hidden) {
+          syncLiveSessions()
           const archivedSessionIds = ctx.workspaces.list.getSnapshot().archivedSessionIds ?? []
           send('synapse:workspaces', { workspaces: workspaceSnapshot(ctx), archivedSessionIds })
           send('synapse:current-session', { session: currentSession(ctx) })

@@ -1,0 +1,55 @@
+{
+  "name": "@zilliz/memsearch-dsh",
+  "version": "0.1.4",
+  "description": "MemSearch plugin for DeepSeek Harness: shared markdown memory across agents, with capture, pre-step context injection, memory-recall skill, and a skill-candidate review panel.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "types": null,
+      "default": "./index.js"
+    },
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "prompts/",
+    "skills/",
+    "scripts/summarize.py",
+    "scripts/parse-transcript.py",
+    "scripts/derive-collection.sh",
+    "scripts/maintenance-runner.py"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zilliztech/memsearch",
+    "directory": "plugins/dsh"
+  },
+  "keywords": [
+    "memsearch",
+    "memory",
+    "deepseek-harness",
+    "cordis",
+    "plugin"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": "*"
+  }
+}

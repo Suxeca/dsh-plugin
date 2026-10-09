@@ -1,6 +1,10 @@
 /** Staged form state for the plugin-owned smooth-stream settings RPC. */
 
-import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+// rc.8 moved createSnapshotStore to the platform seed word @deepseek-ai/dsh-client-store.
+// Importing it from @deepseek-ai/dsh-client-runtime (/client) would pull the rc.6 runtime,
+// whose apply() provides "sessions"/"workspaces" and collides with rc.8
+// session-controller / workspace-controller at boot ("loader fibers failed").
 import { DEFAULT_STREAM_SETTINGS } from '../settings.ts'
 import type { StreamInstallationKind, StreamSettingsView } from '../settings-api.ts'
 import type { SmoothStreamSettingsApi } from './smooth-stream-settings-api.ts'

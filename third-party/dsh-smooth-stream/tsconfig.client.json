@@ -3,7 +3,10 @@
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "types": []
+    "types": [],
+    "paths": {
+      "@deepseek-ai/dsh-client-store": ["../../../deepseek-harness/packages/client/store/lib/types/index.d.ts"]
+    }
   },
   "include": ["src/client", "src/config.ts", "src/settings.ts", "src/css-modules.d.ts"],
   "exclude": []

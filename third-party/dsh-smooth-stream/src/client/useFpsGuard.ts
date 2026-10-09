@@ -8,7 +8,7 @@
  * FPS < 30" rule. The smoother consumes the predicate as its commit veto.
  */
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 const FPS_THRESHOLD = 30
 const FPS_ALPHA = 0.12
@@ -59,12 +59,17 @@ export function useFpsGuard(active: boolean): {
     }
   }, [active])
 
-  const ref = useCallback((element: HTMLElement | null) => {
-    elementRef.current = element
+  const [element, setElement] = useState<HTMLElement | null>(null)
+
+  const ref = useCallback((node: HTMLElement | null) => {
+    elementRef.current = node
+    // Track the node in state so the observer below is rebuilt only when the
+    // element actually changes. Running it on every render (no dependency
+    // array) re-created an IntersectionObserver per streamed chunk.
+    setElement(node)
   }, [])
 
   useEffect(() => {
-    const element = elementRef.current
     if (element === null || typeof IntersectionObserver === 'undefined') return
     const observer = new IntersectionObserver(
       (entries) => {
@@ -74,7 +79,7 @@ export function useFpsGuard(active: boolean): {
     )
     observer.observe(element)
     return () => observer.disconnect()
-  })
+  }, [element])
 
   const shouldHoldBack = useCallback(() => {
     return active && fpsRef.current.degraded && !visibleRef.current

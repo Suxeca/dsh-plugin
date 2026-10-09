@@ -59,3 +59,20 @@ function clampLag(lag: number, port: HTMLElement): number {
 3. 本地补丁备份：`/tmp/smooth-stream-local-fix-backup/`（src + lib）
 
 **后续**：若 v0.3.3 在真实浏览器（中文+长路径换行）仍复现重叠，基于新架构（safeShiftLimit）提供逐帧几何回归测试复现材料给上游。
+
+---
+
+## 2026-09-28 更新：修复行内 KaTeX 数学公式垂直穿模重叠
+
+### 现象
+在包含多行列表（`<li>`）且嵌套行内复杂分式（`\frac{...}{...}`）的回答中，各行公式发生严重的上下穿模与重叠。例如下一行分式的分子（如 $\mathcal{D}_g^{(S1)}$）向上冲破上一行文字，上一行分母与下一行分子交错绞合。
+
+### 根因
+`src/client/TypewriterAssistantNodeView.module.css` 中启用了 `@supports (text-box-trim: trim-both)`，对 `.root :is(p, h1, h2, h3, h4, h5, h6, li, blockquote)` 强行应用了 `text-box-trim: trim-both; text-box-edge: text;`。
+现代 Chromium（Chrome/Edge 133+）支持该属性后激活该规则。该特性强制将列表项和段落的行盒外框锁死在纯文本字形的 ascent/descent 边缘，消除了行内自然 half-leading 与行盒撑高能力。KaTeX 分式（通常高度 35-45px）远高于单行纯文本字形高度，但容器高度无法自适应撑开，导致上下两行公式跨行垂直碰撞重叠。
+
+### 修复
+移除 `TypewriterAssistantNodeView.module.css` 中的 `text-box-trim` 样式规则，恢复浏览器标准的行内格式化上下文（Inline Formatting Context），允许 KaTeX 行内分式自然撑开列表项与段落垂直间距。
+
+### 部署与生效
+执行 `npm run build` 重新产出 `lib/client.js`，浏览器端按 F5 / Ctrl+R 刷新页面即可加载新样式生效。

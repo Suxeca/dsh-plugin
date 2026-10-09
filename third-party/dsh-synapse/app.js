@@ -67,7 +67,15 @@ const state = {
   // This is the module that drives the map; the left list is the source module.
   loadedSessions: new Map(Object.entries(loadedSessionsFromStorage)),
   draft: null, error: '', workspaceLoad: 0, branchAnchors: new Map(savedBranchAnchors), cardPositions: new Map(savedCardPositions),
-  cardNotes: new Map(savedCardNotes), editingNoteCardId: null, contextMenu: null, minimapCollapsed: minimapCollapsedFromStorage, exportModalOpen: false,
+  cardNotes: new Map(savedCardNotes),
+  // Notes stored in THIS map's server file that belong to sessions not on this
+  // map. They are echoed back verbatim on every write so an existing note can
+  // never be dropped, but they are never rendered and never editable here.
+  cardNotesForeign: {},
+  // False until this map's server state has been read once. Writing notes
+  // before that would overwrite the file without knowing what it holds.
+  cardNotesHydrated: false,
+  editingNoteCardId: null, contextMenu: null, minimapCollapsed: minimapCollapsedFromStorage, exportModalOpen: false,
   dragging: false, canvasGesture: false, canvasRefreshAfter: 0, canvasViewInitialized: false, canvasCamera: { x: 0, y: 0 },
   expandedMessageIds: new Set(),
   // Whether the map overlay is actually visible. The iframe stays mounted
@@ -90,16 +98,41 @@ function serverMapEntry(entry) {
   }
 }
 
+/** Notes owned by a session currently on this map, as [cardId, note] pairs.
+ * A card id that names no session counts as owned: omitting it would lose a
+ * note that nothing else can attribute. */
+function ownedNoteEntries() {
+  const entries = []
+  for (const [cardId, note] of state.cardNotes.entries()) {
+    const sessionId = sessionIdFromCardId(cardId)
+    if (sessionId === null || state.loadedSessions.has(sessionId)) entries.push([cardId, note])
+  }
+  return entries
+}
+
+/** Notes this map is allowed to store: those owned by a session currently on
+ * the map, plus whatever already sits in this map's file (echoed verbatim).
+ * The server keeps notes inside each map file, so writing another map's notes
+ * here would persist them into this map forever. */
+function ownedNotePayload() {
+  return { ...state.cardNotesForeign, ...Object.fromEntries(ownedNoteEntries()) }
+}
+
 function triggerServerMapSync() {
   if (mapSyncTimer !== 0) return
   mapSyncTimer = window.setTimeout(() => {
     mapSyncTimer = 0
     const mapPayload = Object.fromEntries([...state.loadedSessions.entries()].map(([sessionId, entry]) => [sessionId, serverMapEntry(entry)]))
-    const notesPayload = Object.fromEntries([...state.cardNotes.entries()])
+    // Until this map's server state has been read we do not know which notes
+    // already live in its file, so send no `notes` key at all: the server then
+    // leaves the stored notes untouched instead of risking an overwrite.
+    const body = state.cardNotesHydrated
+      ? { map: mapPayload, notes: ownedNotePayload() }
+      : { map: mapPayload }
     void fetch('/synapse/api/map', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ map: mapPayload, notes: notesPayload }),
+      body: JSON.stringify(body),
     }).catch(() => {})
   }, 150)
 }
@@ -130,6 +163,9 @@ async function loadServerMap() {
     state.cardPositions = new Map(readMapCache(CARD_POSITIONS_KEY, []))
     state.cardNotes = new Map(readMapCache(CARD_NOTES_KEY, []))
     state.branchAnchors = new Map(readMapCache('dsh-synapse:branch-anchors', []))
+    // This map's stored notes are unknown until it is read back.
+    state.cardNotesForeign = {}
+    state.cardNotesHydrated = false
     state.activeId = null
     resetCanvasCamera()
     void refreshMaps().catch(() => {})
@@ -157,18 +193,35 @@ async function loadServerMap() {
   state.loadedSessions = next
   try { localStorage.setItem(LOADED_SESSIONS_KEY, JSON.stringify(Object.fromEntries(state.loadedSessions))) } catch { /* ignore */ }
 
+  // We have now read this map's server state, so writes may include notes.
+  state.cardNotesHydrated = true
+
   // Merge server card notes across devices (desktop, Android, etc.)
   if (notes !== null && typeof notes === 'object' && !Array.isArray(notes)) {
-    let localHasUnpushedNotes = false
+    // The server stores notes inside each map file, so only notes owned by a
+    // session on this map become editable state. Notes for other sessions are
+    // parked in `cardNotesForeign` and echoed back on write: this map's file
+    // keeps every note it already had, and nothing leaks into other maps.
+    const foreign = {}
+    const serverOwned = new Set()
     for (const [cardId, note] of Object.entries(notes)) {
-      if (typeof note === 'string' && note.trim() !== '') {
-        state.cardNotes.set(cardId, note.trim())
+      if (typeof note !== 'string' || note.trim() === '') continue
+      const sessionId = sessionIdFromCardId(cardId)
+      if (sessionId !== null && !state.loadedSessions.has(sessionId)) {
+        foreign[cardId] = note
+        continue
       }
+      serverOwned.add(cardId)
+      state.cardNotes.set(cardId, note.trim())
     }
+    state.cardNotesForeign = foreign
+    let localHasUnpushedNotes = false
     for (const [cardId] of state.cardNotes.entries()) {
-      if (!(cardId in notes)) {
-        localHasUnpushedNotes = true
-      }
+      // Only notes this map owns can be "unpushed"; a note belonging to another
+      // map is not missing here — it is simply not this map's to store.
+      const sessionId = sessionIdFromCardId(cardId)
+      if (sessionId !== null && !state.loadedSessions.has(sessionId)) continue
+      if (!serverOwned.has(cardId)) localHasUnpushedNotes = true
     }
     try { localStorage.setItem(CARD_NOTES_KEY, JSON.stringify([...state.cardNotes])) } catch { /* ignore */ }
     // If this device has historical local notes not yet on the server, upload them so other devices get them
@@ -177,6 +230,7 @@ async function loadServerMap() {
     }
   } else if (state.cardNotes.size > 0) {
     // If server has no notes record yet, upload all existing local notes to the server
+    state.cardNotesForeign = {}
     triggerServerMapSync()
   }
 
@@ -344,6 +398,14 @@ function sessionUserTurns(messages) {
 function cardIdForTurn(threadId, turn) {
   if (!turn) return null
   return `${threadId}:turn:${turn.sourceSeq ?? turn.messageIndex ?? 0}`
+}
+
+/** Session id encoded in a card id — `loaded:<sessionId>:turn:<seq>` or
+ * `<sessionId>:turn:<seq>`. Returns null when the id names no session. */
+function sessionIdFromCardId(cardId) {
+  if (typeof cardId !== 'string') return null
+  const match = /^(?:loaded:)?(session-[0-9a-f-]+):turn:/.exec(cardId)
+  return match === null ? null : match[1]
 }
 
 function computeContextTurnsPrefix(turnsA, turnsB) {
@@ -623,6 +685,9 @@ async function switchMap(id) {
   state.cardPositions = new Map(readMapCache(CARD_POSITIONS_KEY, []))
   state.cardNotes = new Map(readMapCache(CARD_NOTES_KEY, []))
   state.branchAnchors = new Map(readMapCache('dsh-synapse:branch-anchors', []))
+  // The incoming map's stored notes are unknown until loadServerMap reads them.
+  state.cardNotesForeign = {}
+  state.cardNotesHydrated = false
   state.activeId = null
   resetCanvasCamera()
   await refreshMaps()
@@ -1465,7 +1530,7 @@ function renderExportModal() {
   const cards = conversationCards(threads)
   const sessionCount = state.loadedSessions.size
   const cardCount = cards.length
-  const noteCount = state.cardNotes.size
+  const noteCount = ownedNoteEntries().length
   return `<div class="export-modal" role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
     <div class="export-modal-backdrop" data-action="close-export-modal"></div>
     <div class="export-modal-sheet">
@@ -1529,7 +1594,7 @@ function exportSynapseArchive() {
     title: threads[0]?.dshSessionTitle ?? threads[0]?.title ?? 'Synapse Conversation Map',
     sessions,
     cardPositions: [...state.cardPositions.entries()],
-    cardNotes: [...state.cardNotes.entries()],
+    cardNotes: ownedNoteEntries(),
     branchAnchors: [...state.branchAnchors.entries()],
     camera: { ...state.canvasCamera, zoom: state.zoom },
   }
@@ -2473,12 +2538,16 @@ window.addEventListener('message', event => {
       void refreshMaps().then(() => loadServerMap()).then(() => {
         if (canReplaceView()) render()
       }).catch(() => {})
-      // Push-based sync: subscribe once, no polling.
-      setupMapEvents()
     }
+    // Push-based sync: subscribe when map is opened.
+    setupMapEvents()
   }
   if (data.type === 'synapse:map-closed') {
     state.mapVisible = false
+    if (mapEventSource !== null) {
+      mapEventSource.close()
+      mapEventSource = null
+    }
   }
   if (data.type === 'synapse:workspaces') {
     if (!state.mapVisible) return
@@ -2549,19 +2618,4 @@ async function pollProjection() {
     await refreshProjection()
   } finally { polling = false }
 }
-window.setInterval(() => { void pollProjection() }, 2_000)
-
-// Robustness: if the parent page's `synapse:map-opened` message is lost (e.g.
-// the iframe was still loading when the user clicked the map toggle), self
-// initialize after a short grace period so the map still loads and subscribes.
-window.setTimeout(() => {
-  if (initialRefreshStarted) return
-  initialRefreshStarted = true
-  state.mapVisible = true
-  render()
-  void refreshSummaries().catch(() => {})
-  void loadServerMap().then(changed => {
-    if (changed && canReplaceView()) render()
-  }).catch(() => {})
-  setupMapEvents()
-}, 2_500)
+window.setInterval(() => { void pollProjection() }, 5_000)

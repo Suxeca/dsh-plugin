@@ -1,5 +1,9 @@
 import { createElement, useSyncExternalStore, type ComponentType } from 'react'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+// Context service augmentations (rc.1): the old `dsh-client-runtime/client`
+// re-exported these implicitly. Each augmenting module must be imported for its
+// `declare module '@deepseek-ai/cordis'` block to apply.
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the connection Context merge and the plugins section's SlotMap
 // entry ('settings.plugin.item').
@@ -186,9 +190,11 @@ export function apply(ctx: ClientContext): void {
     const detachPreference = preference.attach(card)
     card.start()
     settingsCtx.effect(() => settingsCtx.locale.register(SETTINGS_NS, { zh, en }), 'dsh-smooth-stream: settings dictionaries')
+    const SETTINGS_ITEM_KEY = 'smooth-stream' // keyed slot: must match the namespace edits this card
     settingsCtx.slots.inject('settings.plugin.item', () => settingsCtx.slots.register({
       name: 'settings.plugin.item',
-      id: 'smooth-stream',
+      key: SETTINGS_ITEM_KEY,
+      id: SETTINGS_ITEM_KEY,
       order: 30,
       locale: SETTINGS_NS,
       inject: () => card.inject(),

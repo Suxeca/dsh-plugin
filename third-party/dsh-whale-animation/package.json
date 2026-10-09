@@ -1,0 +1,59 @@
+{
+  "name": "dsh-whale-animation",
+  "version": "0.3.0",
+  "description": "Persistent DeepSeek-inspired whale-dive and reactive-water animation for the Harness Web turn status.",
+  "license": "MIT",
+  "author": "LeemanCheung",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "assets",
+    "docs",
+    "lib",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE",
+    "NOTICE.md"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "cordis",
+    "web-ui"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LeemanCheung/dsh-whale-animation.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LeemanCheung/dsh-whale-animation/issues"
+  },
+  "homepage": "https://github.com/LeemanCheung/dsh-whale-animation#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "check": "node scripts/check.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

@@ -1,7 +1,10 @@
 import type { Context } from '@deepseek-ai/cordis'
+// Host-side service augmentation: `ctx.settings` is declared on Context by the
+// settings package itself. rc.1 removed the `dsh-client-runtime` shim that used
+// to pull this in transitively, so the augmenting module is imported explicitly.
+import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import Schema from '@deepseek-ai/schemastery'
 import { DEFAULT_STREAM_CONFIG, type StreamConfig } from './config.ts'
 import { injectStreamConfig } from './boot-config.ts'
@@ -69,11 +72,16 @@ export function apply(ctx: Context, config: Config): void {
   // the durable provider as the authority, but expose this one schema through
   // the plugin's own loopback-only connection channel instead.
   ctx.inject(['settings'], (settingsCtx) => {
-    const scope = settingsCtx.settings.register(
-      settingsNamespace(STREAM_SETTINGS_NS),
-      StreamSettingsSchema,
-      { applies: 'live' },
-    )
+    // Harness v0.1.5 removed the settingsNamespace() brand helper; register()
+    // now takes the namespace string and validates it itself.
+    const settings = settingsCtx.settings as any
+    const scope = typeof settings?.register === 'function'
+      ? settings.register(
+          STREAM_SETTINGS_NS,
+          StreamSettingsSchema,
+          { applies: 'live' },
+        )
+      : undefined
     settingsCtx.inject(['connection'], (connectionCtx) => {
       let upgrade: Promise<void> | undefined
 
@@ -147,7 +155,7 @@ export function apply(ctx: Context, config: Config): void {
         return { ok: false, error: { code: 'internal', message: `unknown smooth-stream endpoint ${JSON.stringify(endpoint)}`, details: {} } }
       }
       connectionCtx.effect(
-        () => connectionCtx.connection.rpc.handle(STREAM_SETTINGS_RPC_CHANNEL, handle, { authority: 'loopback' }),
+        () => (connectionCtx.connection.rpc.handle as any)(STREAM_SETTINGS_RPC_CHANNEL, handle),
         'dsh-smooth-stream: settings RPC',
       )
     })

@@ -1068,7 +1068,7 @@ function WallpaperPicker() {
       // Storage location — users can point uploads at a non-system drive
       // (most people don't want wallpaper files piling up on C:). The host
       // persists the choice and migrates existing files on change.
-      React.createElement("div", { className: "we-picker__row" },
+      React.createElement("div", { className: "we-picker__row we-picker__storage-row" },
         React.createElement("span", { className: "we-picker__hint we-picker__label" }, "存储位置"),
         React.createElement("span", {
           className: "we-picker__uploads-path",
@@ -1376,10 +1376,16 @@ const CSS = `
 
   /* While a wallpaper is active: make the app frame AND sidebar transparent so
      all columns share the same wallpaper+scrim background, raise border alpha
-     for visibility, and apply the frosted-glass effect to opaque surfaces. */
+     for visibility, and apply the frosted-glass effect to opaque surfaces.
+     NOTE: !important on the transparency tokens is load-order-proof: the
+     ui-theme design-platform.css injects its own body[data-ds-dark-theme]
+     rules with the same specificity (0,1,1) AFTER this plugin's sheet (client
+     plugin activation order), so without it dark/system themes repaint the
+     frame opaque and cover the z-index:-2 wallpaper layer. Light mode was
+     unaffected because body alone is specificity (0,0,1). */
   body[data-we-wallpaper] {
-    --dsw-alias-bg-base: transparent;
-    --dsw-specific-sidebar-fill: transparent;
+    --dsw-alias-bg-base: transparent !important;
+    --dsw-specific-sidebar-fill: transparent !important;
     /* Border emphasis: neutral gray so it reads on both light and dark themes;
        alpha is driven by the "边框" slider through --we-border-alpha. */
     --dsw-alias-border-l1: rgba(180, 180, 180, var(--we-border-alpha, 0.35));
@@ -1493,6 +1499,23 @@ const CSS = `
   body[data-ds-dark-theme][data-we-wallpaper] [data-dsh-better-sidebar] [class*="_browserBar"],
   body[data-ds-dark-theme][data-we-wallpaper] [data-dsh-better-sidebar] [class*="_terminalWrap"] {
     background-color: rgba(255, 255, 255, 0.04) !important;
+  }
+
+  /* ── Settings Panel & Modals glass ── */
+  body[data-we-wallpaper] [role="dialog"][aria-modal="true"],
+  body[data-we-wallpaper] [class*="_panel"] {
+    background-color: rgba(255, 255, 255, 0.22) !important;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0.1) 38%, rgba(255, 255, 255, 0.04)) !important;
+    -webkit-backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+    backdrop-filter: blur(var(--we-blur, 16px)) saturate(var(--we-saturate, 1.8)) brightness(var(--we-glass-brightness, 1.04)) contrast(1.01) !important;
+  }
+  body[data-ds-dark-theme][data-we-wallpaper] [role="dialog"][aria-modal="true"],
+  body[data-ds-dark-theme][data-we-wallpaper] [class*="_panel"] {
+    background-color: rgba(18, 22, 28, 0.6) !important;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02) 38%, transparent) !important;
+  }
+  body[data-we-wallpaper] [class*="_mask"] {
+    background: rgba(0, 0, 0, 0.15) !important;
   }
 
   /* Picker chrome. */
@@ -1768,10 +1791,26 @@ const CSS = `
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-size: 0.82em;
   }
+  .we-picker__storage-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+  }
   .we-picker__uploads-path {
     flex: 1; min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-size: 0.8em; opacity: 0.85;
+  }
+  @media (max-width: 480px) {
+    .we-picker__storage-row .we-picker__uploads-path {
+      grid-column: 1 / -1;
+      grid-row: 2;
+      padding-top: 2px;
+      overflow: visible;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+    .we-picker__storage-row .we-picker__btn { grid-column: 3; grid-row: 1; }
   }
   /* Playback-rate segmented control (video wallpapers only). */
   .we-picker__rate {

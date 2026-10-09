@@ -1,0 +1,7 @@
+# dsh-gpt-compat bundle patch: mount the fail-closed GPT/Codex escalation guard.
+- insert:
+    - id: gpt-compat
+      name: "dsh-gpt-compat"
+      config:
+        providers: ["*"]
+        tools: ["bash", "pwsh", "write", "edit"]

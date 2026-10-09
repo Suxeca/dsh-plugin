@@ -1,0 +1,10 @@
+# Bundle layer for @dsh-external/dsh-proxy-guard.
+#
+# The profile lists this package in `dsh.profile.bundles`, and every bundle must
+# ship its own patch layer — this insert is what actually mounts the plugin
+# (the same shape dsh-deja / dsh-purge / dsh-smooth-stream use).
+- insert:
+    - id: dsh-proxy-guard
+      name: '@dsh-external/dsh-proxy-guard'
+      config:
+        enabled: true

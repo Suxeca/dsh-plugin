@@ -1,0 +1,7 @@
+# Optional Profile Bundle: the model-facing delegation tool for the Codex subagent.
+# The provider itself is registered on the Host plane by @dsh-external/dsh-codex-gpt55
+# (or by @deepseek-ai/dsh-subagent-codex); this row only contributes the tool, which
+# resolves that Host registry at call time.
+- insert:
+    - id: tool-subagent-codex
+      name: '@dsh-external/dsh-codex-bridge'

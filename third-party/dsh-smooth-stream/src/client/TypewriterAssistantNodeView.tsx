@@ -11,7 +11,7 @@ import { DEFAULT_STREAM_SETTINGS } from '../settings.ts'
 import css from './TypewriterAssistantNodeView.module.css'
 
 type AssistantProps = ChatNodeViewProps<'assistant-step'>
-type MarkdownProps = Pick<ComponentProps<typeof MarkdownText>, 'codeLabels' | 'fileMentions' | 'text'>
+type MarkdownProps = Pick<ComponentProps<typeof MarkdownText>, 'labels' | 'fileMentions' | 'text'>
 
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(
@@ -112,7 +112,7 @@ function pendingTextCanGrow(root: HTMLElement | null, pending: string): boolean 
  */
 function AnimatedMarkdownText({
   text,
-  codeLabels,
+  labels,
   fileMentions,
   streaming,
   announce,
@@ -174,7 +174,7 @@ function AnimatedMarkdownText({
         <MarkdownText
           text={live ? shown : text}
           streaming={live}
-          codeLabels={codeLabels}
+          labels={labels}
           fileMentions={live ? undefined : fileMentions}
         />
       </FollowHost>
@@ -363,7 +363,13 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
     () => owner === undefined ? undefined : fileMentions(owner),
     [fileMentions, owner],
   )
-  const codeLabels = useMemo(() => ({ copyLabel: t('copy'), copiedLabel: t('copied') }), [t])
+  // Harness MarkdownText now takes a `labels` object ({ code: {copyLabel, copiedLabel}, footnotes }),
+  // not the obsolete `codeLabels`. The chat namespace's t() resolves copy/copied from the shared
+  // `common` vocabulary, so the same t() builds both here.
+  const labels = useMemo<MarkdownProps['labels']>(() => ({
+    code: { copyLabel: t('copy'), copiedLabel: t('copied') },
+    footnotes: t('markdown.footnotes'),
+  }), [t])
   const imageLoader: ImageLoader = loadImage ?? (async () => {
     throw new Error(t('image.serviceUnavailable'))
   })
@@ -388,7 +394,7 @@ export const TypewriterAssistantNodeView = memo(function TypewriterAssistantNode
           <AnimatedMarkdownText
             key={index}
             text={block.text}
-            codeLabels={codeLabels}
+            labels={labels}
             fileMentions={mentions}
             streaming={streaming}
             announce={index === last}

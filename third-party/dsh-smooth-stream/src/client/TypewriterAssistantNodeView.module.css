@@ -228,14 +228,8 @@
 }
 
 /*
- * Trim the half-leading above and below each text block so line boxes hug
- * the font's ascent/descent edges. `text` edges are used instead of
- * `cap alphabetic` because assistant text is CJK-heavy and cap-height
- * trimming would clip ideographic glyphs.
+ * Disabled: text-box-trim locks line boxes to plain font metrics edges,
+ * collapsing the vertical clearance needed by KaTeX inline math formulas
+ * (especially \frac and sub/superscripts inside <li> items) and causing
+ * adjacent formula lines to vertically collide and overlap.
  */
-@supports (text-box-trim: trim-both) {
-  .root :is(p, h1, h2, h3, h4, h5, h6, li, blockquote) {
-    text-box-trim: trim-both;
-    text-box-edge: text;
-  }
-}

@@ -1,7 +1,7 @@
 /**
  * Browser client bundle for dsh-smooth-stream, mirroring the DeepSeek Harness
- * `clientBundle` protocol (packages/client/tsdown.client.ts) and the
- * dsh-agent-teams bundle in this repo:
+ * `clientBundle` protocol (packages/client/tsdown.client.ts) and the shape of
+ * the sibling third-party bundles in this repo:
  *
  * - CJS closure-factory artifact: `window.__ModuleLoader__.load({ id,
  *   factory: (require) => ... })`; externals resolve through the loader
@@ -24,12 +24,15 @@ import { defineConfig, type UserConfig } from 'tsdown'
 /** Platform seed entries the browser module table answers (external). */
 const PLATFORM_MODULES = [
   'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-web-react',
   '@deepseek-ai/dsh-client-ui-primitives',
   '@deepseek-ai/dsh-client-ui-attachment',
   '@deepseek-ai/dsh-client-schema-form',
-  '@deepseek-ai/dsh-client-runtime/client',
+  // rc.8 boot moved createSnapshotStore off the rc.6 runtime package; importing it
+  // from @deepseek-ai/dsh-client-runtime would pull that package's apply(), which
+  // provides sessions/workspaces and collides with rc.8 session/workspace-controller.
   '@deepseek-ai/dsh-client-locale/client',
   '@deepseek-ai/dsh-client-connection/client',
   '@deepseek-ai/dsh-client-ui-settings-plugins/client',

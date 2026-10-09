@@ -207,7 +207,9 @@ test('map state syncs to the server so every device sees the same map', async ()
 
   // Local changes push map metadata and card notes to /api/map (debounced).
   assert.match(app, /fetch\('\/synapse\/api\/map'/)
-  assert.match(app, /notes: notesPayload/)
+  // Notes are scoped to this map before they are pushed; the server keeps notes
+  // per map file, so pushing the whole set would contaminate every other map.
+  assert.match(app, /notes: ownedNotePayload\(\)/)
   assert.match(app, /triggerServerMapSync\(\)/)
   // On first open, pull the server map & notes and adopt them.
   assert.match(app, /loadServerMap\(\)/)
