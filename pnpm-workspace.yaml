@@ -1,5 +1,12 @@
 packages:
   - 'packages/*'
+  # dsh-quota-meter 未收录进公开仓库（源码内含 Antigravity 公开凭据，见 .gitignore），
+  # 因此不得作为 workspace 成员出现在 lockfile 里，否则新克隆的 --frozen-lockfile 会失败。
+  # 本机仍可单独安装：cd packages/dsh-quota-meter && pnpm install
+  - '!packages/dsh-quota-meter'
+  # dsh-secure-context-polyfill 同样是本机私人包（.gitignore 第 16 行），
+  # 未收录进公开仓库，因此也不能出现在 lockfile 的 importer 列表里。
+  - '!packages/dsh-secure-context-polyfill'
 
 # pnpm store lives inside the workspace: the DSH file sandbox (workspace-write
 # mode) only grants writes under the session workspace, and the default global
