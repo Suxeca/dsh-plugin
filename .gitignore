@@ -29,5 +29,72 @@ PLUGIN-HANDOFF.md
 .agent-teams/
 .dsh-vision-toolkit/
 
+# memsearch 记忆：memory/ 是原始对话沉淀（含本机路径与项目细节，同 sage-mem
+# 的 .claude-mem.db 一样不该进仓库）；索引状态与 Milvus 影子数据同理。
+# skill-candidates/ 官方设计为可 git 跟踪，故不在此列。
+.memsearch/memory/
+.memsearch/.index-state.json
+.memsearch/.maintenance-state.json
+.memsearch/*.db
+
+# 本机会话导出与运维记录：含真实对话内容、主机与账号信息，永不入库
+dsh-session-*.zip
+vps_monitor_records.csv
+test_vps_stability.sh
+handoff-*.md
+*.pptx
+
+# 本机评估/审计记录（含真实会话内容与工作目录），仅留本机
+*审计*.md
+
+# 本机临时工作目录（会话检查/预设草稿）
+.tmp_session_*/
+.preset-work/
+tmp_session_inspect/
+
 # 本地部署副本：运行时用这一份，公开仓库的 packages/ 保持 pristine
 local-deploy/
+
+# ---------------------------------------------------------------------------
+# 本机运行时目录：会话状态、分析中间产物、备份快照、审计索引、安装器副本。
+# 与上面「审计记录仅留本机」同一条策略——含真实会话内容与本机工作目录。
+# ---------------------------------------------------------------------------
+.agents/
+.analysis/
+.audit/
+.backups/
+.claude/
+.memresearch/
+.work/
+installations/
+viz/
+.tmp_test_session/
+
+# 构建产物
+*.tsbuildinfo
+
+# 本机评估/审计记录（英文命名，故不被上面的 *审计*.md 覆盖），仅留本机
+dsh-alpha1-to-rc1-breaking-changes.md
+dsh-graph-compat-review-*.md
+jit-agent-review-*.md
+ms_readme.md
+reme_readme.md
+plugin-audit-*.md
+plugin-update-audit-*.md
+research-skill-evaluator.zip
+docs/token-audit-*.md
+docs/token-consumption-audit-*.md
+docs/upgrade-scan-*.md
+docs/session-organize-shortlist.md
+docs/dsh-0.1.6-compat-audit/purge-snapshot/
+
+
+# 本机编辑备份（vendored 上游目录里的 *.bak / *.bak-<reason>）
+*.bak
+*.bak-*
+
+# Antigravity 公开 OAuth 凭据（Google GOCSPX-…）硬编码在这两处源码里，
+# 而 GitHub 推送保护按模式拦截 client secret。本地照常使用，但不入库；
+# 需要恢复公开收录时，改用 env 注入或走 GitHub unblock 流程。
+third-party/dsh-agy/
+packages/dsh-quota-meter/
