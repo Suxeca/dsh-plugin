@@ -29,6 +29,15 @@ export const MODE_MIXED = 0.3
 export const MODE_REACT = 1
 export const MODE_WEAK = 'weak'
 
+/**
+ * Section name of the deployment persona suffix, introduced by
+ * dsh-v0.1.5-rc.1 (see `PERSONA_SUFFIX_SECTION` in
+ * `@deepseek-ai/dsh-system-prompt`). Hard-coded rather than imported because
+ * this file is deliberately zero-dependency. It carries the working directory
+ * and must survive `applyPersona`, so it is exempted from the persona filter.
+ */
+const PERSONA_SUFFIX_SECTION_NAME = 'deployment:persona-suffix'
+
 const SPEC_PERSONA = 'You are a helpful software engineer assistant.'
 
 const MIXED_PERSONA =
@@ -170,12 +179,29 @@ export function clamp01(v) {
  * Replace only the persona section of an assembled section list, keeping
  * everything else — the plan-mode section above all, which is toggled per
  * plan state and carries the plan-boundary instructions.
+ *
+ * Upstream dsh-v0.1.5-rc.1 split the persona into TWO sections:
+ * `deployment:persona-prefix` (order 0) and `deployment:persona-suffix`
+ * (order 10200). Two consequences this function has to handle:
+ *
+ * 1. The SUFFIX must be PRESERVED. It carries `Your working directory is
+ *    {{cwd}}.` — the cwd is not available to the router, so dropping it would
+ *    silently lose the working directory from the system prompt in react/spec
+ *    mode. It is therefore exempted from the persona filter below. This is the
+ *    behavioural change from the old `!/persona/i` filter, which (because the
+ *    new names contain the word "persona") would have matched and removed it.
+ * 2. The router persona is PREPENDED rather than appended. Appending would put
+ *    it after the real suffix section (order 10200) and after every tool
+ *    instruction, contradicting the declared `order: 0`. Prepending does not
+ *    depend on whether the renderer sorts by `order` or by array position.
  */
 export function applyPersona(sections, personaText) {
-  const rest = (sections || []).filter(
-    (section) => section.name !== 'persona' && !/persona/i.test(section.name),
-  )
-  return [...rest, { name: 'router-persona', text: personaText, order: 0 }]
+  const rest = (sections || []).filter((section) => {
+    const name = section.name ?? ''
+    if (name === PERSONA_SUFFIX_SECTION_NAME) return true // keep cwd suffix
+    return name !== 'persona' && !/persona/i.test(name)
+  })
+  return [{ name: 'router-persona', text: personaText, order: 0 }, ...rest]
 }
 
 /** Parse a user/agent-supplied mode token: number 0-100, 0.0-1.0, or a band name. */
