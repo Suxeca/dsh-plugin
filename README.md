@@ -1,5 +1,8 @@
 # dsh-plugin · DSH 个人插件合集
 
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
+[![](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
+
 面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）Web GUI 的**个人插件合集与生产力套件**：涵盖界面与交互增强、科研推演流水线、插件开发与自愈体系、跨会话记忆以及推理模式路由预设。
 
 > 🏛️ **历史插件归档**：此前退役、卸载或由 DSH 原生功能替代的插件（如 `dsh-better-sidebar`、`dsh-lab-kit`、`dsh-vision-toolkit` 等）已全数迁移至 **[历史与退役插件归档](docs/HISTORICAL-PLUGINS.md)**，首页仅保留在用与最新演进成果。
