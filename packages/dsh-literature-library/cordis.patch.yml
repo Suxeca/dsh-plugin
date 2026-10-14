@@ -1,7 +1,22 @@
+# Bundle patch for @suxeca/dsh-literature-library
+#
+# No paths are declared here on purpose: an absolute path in a published bundle
+# patch pins the plugin to the machine that built it. The plugin resolves its
+# three paths at activation instead, in this order:
+#
+#   1. the libraryRoot / catalogPath / pagePath config keys, or the
+#      DSH_LITERATURE_ROOT environment variable for the whole root
+#   2. ~/Workspace/docs/literature, when that directory already exists
+#   3. ~/.dsh/literature (portable default)
+#
+# Derived from the root: <root>/library, <root>/library/catalog.json,
+# <root>/library-page.html. Override explicitly like this if your layout differs:
+#
+#   config:
+#     libraryRoot: /srv/literature/library
+#     catalogPath: /srv/literature/library/catalog.json
+#     pagePath: /srv/literature/library-page.html
 - insert:
     - id: literature-library
       name: '@suxeca/dsh-literature-library'
-      config:
-        libraryRoot: /home/suxeca/Workspace/docs/literature/library
-        catalogPath: /home/suxeca/Workspace/docs/literature/library/catalog.json
-        pagePath: /home/suxeca/Workspace/docs/literature/library-page.html
+      config: {}

@@ -90,15 +90,34 @@ async function checkOne(PKG) {
   const guardLeaks = MS.filter(m => shipped.some(s => s.text.includes(m.marker)))
     .map(m => ({ label: m.label, files: shipped.filter(s => s.text.includes(m.marker)).map(s => s.file) }))
 
+  // Absolute local paths are a portability leak, not a style issue: the bytes
+  // work only for the machine that wrote them and publish the maintainer's
+  // username and directory layout. Treated as a hard failure, like the release
+  // gate, so a package that would be refused there is flagged here too.
+  const ABS_PATH = /\/home\/[A-Za-z0-9._-]+\/|\/Users\/[A-Za-z0-9._-]+\/|[A-Z]:\\Users|\/root\//
+  const absPathHits = []
+  for (const s of shipped) {
+    if (s.file.endsWith(".tsbuildinfo")) continue
+    s.text.split("\n").forEach((line, i) => {
+      // Comment lines are normalised by scripts/strip-abs-comments.mjs during
+      // staging (bundlers put the absolute source path in region markers), so
+      // they are not a release blocker. Only real code paths count.
+      const t = line.trimStart()
+      if (t.startsWith("//") || t.startsWith("*") || t.startsWith("/*") || t.startsWith("#")) return
+      const m = line.match(ABS_PATH)
+      if (m) absPathHits.push({ file: s.file, line: i + 1, match: m[0] })
+    })
+  }
+
   // Predicted grade for a fresh standalone repo: stage-1 = 100 (no star data),
   // so the supply-chain deduction is the whole story. A needs >= 90.
   const predicted = ev.forceGradeF ? "F" : (100 - ev.scoreDeduction >= 90 ? "A" : (100 - ev.scoreDeduction >= 75 ? "B" : "C"))
-  return { meta, ev, r, scannedHits, guardLeaks, predicted }
+  return { meta, ev, r, scannedHits, guardLeaks, predicted, absPathHits }
 }
 
 const rows = []
 function compactRow(res) {
-  const { meta, ev, r, scannedHits, guardLeaks, predicted } = res
+  const { meta, ev, r, scannedHits, guardLeaks, predicted, absPathHits } = res
   const th = (s, n) => String(s).padEnd(n)
   return [
     th(meta.name, 44),
@@ -108,7 +127,8 @@ function compactRow(res) {
     th("risk=" + r.securityRisk, 16),
     th("perm=" + (r.permissions.length ? r.permissions.join(",") : "-"), 34),
     "entryHits=" + (scannedHits.length ? scannedHits.join("+") : "-"),
-    " guardLeaks=" + (guardLeaks.length ? guardLeaks.map(g => g.label + "@" + g.files.length).join("+") : "-"),
+    " guardLeaks=" + (guardLeaks.length ? guardLeaks.map(g => g.label + "@" + g.files.length).join("+") : "-") + " ",
+    "absPaths=" + (absPathHits.length ? "FAIL(" + absPathHits.length + ")" : "0"),
   ].join(" ")
 }
 
@@ -120,9 +140,11 @@ const targets = arg
       .map(e => join(ROOT, "packages", e.name))
       .sort()
 
+let blocked = 0
 for (const t of targets) {
   try {
     const res = await checkOne(t)
+    if (res.absPathHits.length) blocked += 1
     if (arg && !process.env.PRECHECK_COMPACT) rows.push(res)
     else console.log(compactRow(res))
   } catch (e) {
@@ -135,6 +157,7 @@ if (!arg) {
   console.log("A = predicted grade for a FRESH standalone repo (stage-1 metadata score 100 minus supply-chain deduction; A needs >= 90).")
   console.log("entryHits  = markers found in the bytes the auditor actually scans (cordis.patch.yml + lib/index.js).")
   console.log("guardLeaks = markers anywhere in the shipped set; a release script must abort on these.")
+  console.log("absPaths   = absolute local paths in the shipped set; 0 is required to publish.")
 } else if (!process.env.PRECHECK_COMPACT) {
   for (const res of rows) {
     console.log(JSON.stringify({
@@ -145,6 +168,18 @@ if (!arg) {
       supplyChainFlags: res.r.supplyChainFlags, scoreDeduction: res.ev.scoreDeduction,
       forceGradeF: res.ev.forceGradeF, criticalVerdict: res.ev.criticalVerdict ?? null,
       scannedEntryHits: res.scannedHits, guardMarkerLeaks: res.guardLeaks,
+      absolutePathLeaks: res.absPathHits,
     }, null, 2))
   }
+}
+
+// Hard failure, mirroring release-plugin.sh: an absolute path in the published
+// bytes is never acceptable, so a non-zero exit makes this usable in a gate.
+if (blocked > 0) {
+  console.error("")
+  console.error("BLOCKED: " + blocked + " package(s) carry absolute local paths; release-plugin.sh would refuse them.")
+  for (const res of rows.concat([])) {
+    for (const h of res.absPathHits) console.error("  " + res.meta.name + "  " + h.file + ":" + h.line + "  " + h.match)
+  }
+  process.exit(1)
 }

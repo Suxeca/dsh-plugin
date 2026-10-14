@@ -316,16 +316,25 @@ for forbidden in tests node_modules test-units; do
 done
 find "$TMP" -name '*.tsbuildinfo' -type f | grep -q . && die "refusing to publish: a *.tsbuildinfo survived staging"
 
-# Portability check (warning, not a gate): a hardcoded local path still loads,
-# but it silently only works on the machine that wrote it, so the mirror would
-# look fine and fail for everyone else. Surfaced rather than blocked, because
-# whether it matters depends on the code path.
-ABS_HITS="$(grep -rIlE '/home/[A-Za-z0-9._-]+/|/Users/[A-Za-z0-9._-]+/|[A-Z]:\\\\Users' "$TMP" 2>/dev/null || true)"
+# Bundler-emitted comment markers carry the absolute source path even when no
+# source file contains one. Rewrite those comment lines to a portable form
+# first; the gate below then covers everything that is left, including code.
+node "$ROOT/scripts/strip-abs-comments.mjs" "$TMP" "$ROOT" "$HOME"
+
+# Hard gate: no absolute local path may reach a published mirror. Such a path
+# still loads, so the mirror looks fine while only working on the machine that
+# wrote it, and it leaks the maintainer's username and directory layout into a
+# public repository. Resolve paths at runtime instead (env var, then a probed
+# conventional location, then a portable default).
+ABS_HITS="$(grep -rInE '/home/[A-Za-z0-9._-]+/|/Users/[A-Za-z0-9._-]+/|[A-Z]:\\\\Users' "$TMP" 2>/dev/null || true)"
 if [ -n "$ABS_HITS" ]; then
-  printf 'release-plugin: WARNING: absolute local paths in the published bytes:\n' >&2
-  while IFS= read -r f; do printf '    %s\n' "${f#"$TMP"/}" >&2; done <<< "$ABS_HITS"
-  printf '    These work only on this machine. Consider an env var or config with a portable default.\n' >&2
+  printf 'release-plugin: ERROR: absolute local paths in the published bytes:\n' >&2
+  while IFS= read -r line; do printf '    %s\n' "${line#"$TMP"/}" >&2; done <<< "$ABS_HITS"
+  die "refusing to publish $PKG_DIR_NAME: resolve these paths at runtime
+       (environment variable first, then a probed conventional location, then a
+       portable default) rather than baking in this machine's layout."
 fi
+printf '    0 absolute local paths in the published bytes\n'
 
 printf '    package.json, cordis.patch.yml, lib/ (%s files), LICENSE%s\n' \
   "$(find "$TMP/lib" -type f | wc -l | tr -d ' ')" \

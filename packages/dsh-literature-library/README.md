@@ -4,7 +4,25 @@ Authenticated local literature bookmarks for the radar briefing. The first-party
 
 ## Configuration
 
-The bundle patch declares `libraryRoot`, `catalogPath`, and `pagePath`. All three are required at activation. Catalog records must contain an exact arXiv id, source title, authors, source URL, and verification timestamp. Clients select existing ids; they cannot submit metadata or filesystem paths.
+The bundle patch declares **no paths**: an absolute path in a published patch pins the plugin to the machine that built it. The three paths are resolved at activation instead, in this order:
+
+1. the `libraryRoot` / `catalogPath` / `pagePath` config keys, or the `DSH_LITERATURE_ROOT` environment variable for the whole root;
+2. `~/Workspace/docs/literature`, when that directory already exists on disk;
+3. `~/.dsh/literature` — the portable default for a fresh machine.
+
+The three paths are derived from the resolved root: `<root>/library`, `<root>/library/catalog.json`, and `<root>/library-page.html`. Point it at an existing library by exporting `DSH_LITERATURE_ROOT=/srv/literature`, or by declaring the keys explicitly:
+
+```yaml
+- insert:
+    - id: literature-library
+      name: '@suxeca/dsh-literature-library'
+      config:
+        libraryRoot: /srv/literature/library
+        catalogPath: /srv/literature/library/catalog.json
+        pagePath: /srv/literature/library-page.html
+```
+
+When no catalog can be read at the resolved path, the plugin logs the resolved paths and stays **inactive** rather than throwing: a missing library must not take the host down with it. Catalog records must contain an exact arXiv id, source title, authors, source URL, and verification timestamp. Clients select existing ids; they cannot submit metadata or filesystem paths.
 
 ## Persistence
 
@@ -12,7 +30,7 @@ The bundle patch declares `libraryRoot`, `catalogPath`, and `pagePath`. All thre
 
 ## Authentication and lifecycle
 
-Every page and API request uses the existing connection service's `requestRejection`. Cross-origin writes are rejected. Routes belong to `ctx.effect` and are disposed with the plugin. Install through the bundle patch; an unconfigured raw injection is unsupported. Only one configured library writer should be active.
+Every page and API request uses the existing connection service's `requestRejection`. Cross-origin writes are rejected. Routes belong to `ctx.effect` and are disposed with the plugin. Install through the bundle patch. A config-less install is the normal case: the paths resolve at activation, so no raw injection or hand-written path is needed. Only one library writer should be active.
 
 ## Build and test
 

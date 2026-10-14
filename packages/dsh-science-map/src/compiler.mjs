@@ -1,8 +1,23 @@
 import { readFileSync, existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { resolve, dirname, join } from 'node:path';
 
+/**
+ * Fallback asset root, resolved at runtime rather than baked in: an absolute
+ * author path in a published file resolves figures only on the machine that
+ * wrote it. Priority: DSH_SCIENCE_MAP_ASSETS, then the author layout when it
+ * exists locally, then the working directory.
+ */
+function fallbackAssetsRoot() {
+  const fromEnv = process.env.DSH_SCIENCE_MAP_ASSETS;
+  if (fromEnv) return fromEnv;
+  const authored = join(homedir(), 'Workspace', 'Z3model');
+  if (existsSync(authored)) return authored;
+  return process.cwd();
+}
+
 export function compileScienceMapToHtml(spec, options = {}) {
-  const { assetsRoot = process.cwd() } = options;
+  const { assetsRoot = process.env.DSH_SCIENCE_MAP_ASSETS ?? process.cwd() } = options;
 
   // 1. Compute geometry for nodes
   const COL_WIDTH = 250;
@@ -49,7 +64,7 @@ export function compileScienceMapToHtml(spec, options = {}) {
       const candidatePaths = [
         join(assetsRoot, node.figure.asset_path),
         resolve(node.figure.asset_path),
-        join('/home/suxeca/Workspace/Z3model', node.figure.asset_path),
+        join(fallbackAssetsRoot(), node.figure.asset_path),
       ];
 
       for (const p of candidatePaths) {
