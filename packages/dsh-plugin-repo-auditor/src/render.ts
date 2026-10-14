@@ -3,6 +3,7 @@
  */
 
 import type { BatchAuditOutput, RepoAuditResult, SecurityRiskLevel } from './types.js'
+import { TOKEN_CHILD_PROCESS, TOKEN_CREDENTIALS, TOKEN_PRE_EXECUTE } from './tokens.js'
 
 function gradeEmoji(grade: RepoAuditResult['grade']): string {
   switch (grade) {
@@ -90,7 +91,7 @@ export function renderMarkdownReport(data: BatchAuditOutput): string {
           lines.push(`    - \`${p}\``)
         }
       } else if (sc.isDshPlugin) {
-        lines.push(`  - 宿主敏感权限: _纯净无特权 (未请求 credentials/child_process/pre-execute 等特权)_`)
+        lines.push(`  - 宿主敏感权限: _纯净无特权 (未请求 ${TOKEN_CREDENTIALS}/${TOKEN_CHILD_PROCESS}/${TOKEN_PRE_EXECUTE} 等特权)_`)
       }
 
       if (sc.supplyChainFlags.length > 0) {

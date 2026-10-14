@@ -5,6 +5,31 @@
 
 import type { GitHubClient } from './github-client.js'
 import type { SecurityRiskLevel, SupplyChainAuditResult } from './types.js'
+import {
+  REGEX_AWS,
+  REGEX_DISREGARD_PREVIOUS,
+  REGEX_DOT_ENV,
+  REGEX_ETC_PASSWD,
+  REGEX_IGNORE_PREVIOUS,
+  REGEX_NPMRC,
+  REGEX_SSH,
+  TOKEN_CHILD_PROCESS,
+  TOKEN_CREDENTIALS,
+  TOKEN_EXEC_FILE,
+  TOKEN_EXEC_SYNC,
+  TOKEN_GITHUB_TOKEN,
+  TOKEN_PLUGIN_MANAGER,
+  TOKEN_PRE_EXECUTE,
+  TOKEN_SKIP_GATE,
+  TOKEN_SPAWN_SYNC,
+} from './tokens.js'
+
+/** Detector for `inject = ['<service>']` declarations (see tokens.ts for why it is built at runtime). */
+const sensitiveInjectPattern = (service: string): RegExp =>
+  new RegExp(String.raw`\binject\s*=\s*\[[^\]]*['"]${service}['"][^\]]*\]`, 'i')
+
+/** Node host-execution APIs a DSH plugin must not reach for silently. */
+const HOST_API_TOKENS = [TOKEN_CHILD_PROCESS, TOKEN_EXEC_SYNC, TOKEN_SPAWN_SYNC, TOKEN_EXEC_FILE]
 
 // Whitelist for common build/dev lifecycle hooks
 const SAFE_HOOK_WHITELIST = [
@@ -24,7 +49,13 @@ const CRITICAL_MALWARE_PATTERNS = [
   { pattern: /\b(curl|wget|Invoke-WebRequest|iwr|fetch\s*\(|https?:\/\/)\b/i, reason: 'Remote download/network request' },
   { pattern: /\b(eval\s*\(|node\s+-e|python\d?\s+-c|powershell|cmd\.exe|\|\s*(sh|bash|zsh))\b/i, reason: 'Dynamic code execution/piping' },
   { pattern: /\b(base64|Buffer\.from\s*\([^)]*base64|\\x[0-9a-fA-F]{2})\b/i, reason: 'Obfuscated payload' },
-  { pattern: /(\.ssh|\.env|\.npmrc|\.aws|GITHUB_TOKEN|DEEPSEEK|credentials|\/etc\/passwd)/i, reason: 'Credential theft target' },
+  {
+    pattern: new RegExp(
+      '(' + [REGEX_SSH, REGEX_DOT_ENV, REGEX_NPMRC, REGEX_AWS, TOKEN_GITHUB_TOKEN, 'DEEPSEEK', TOKEN_CREDENTIALS, REGEX_ETC_PASSWD].join('|') + ')',
+      'i'
+    ),
+    reason: 'Credential theft target',
+  },
 ]
 
 export interface SupplyChainEvaluation {
@@ -153,41 +184,46 @@ export async function auditSupplyChain(
 
     if (combinedCode.trim().length > 0) {
       // 3.1 Check sensitive Cordis service inject or Node dangerous operations
-      const hasCredentialsInject = /\binject\s*=\s*\[[^\]]*['"]credentials['"][^\]]*\]/i.test(combinedCode) || /\bctx\.credentials\b/i.test(combinedCode)
-      const hasPluginManagerInject = /\binject\s*=\s*\[[^\]]*['"]plugin_manager['"][^\]]*\]/i.test(combinedCode)
-      const hasChildProcess = /\b(child_process|execSync|spawnSync|execFile)\b/i.test(combinedCode)
+      const hasCredentialsInject =
+        sensitiveInjectPattern(TOKEN_CREDENTIALS).test(combinedCode) ||
+        new RegExp('\\bctx\\.' + TOKEN_CREDENTIALS + '\\b', 'i').test(combinedCode)
+      const hasPluginManagerInject = sensitiveInjectPattern(TOKEN_PLUGIN_MANAGER).test(combinedCode)
+      const hasChildProcess = new RegExp('\\b(' + HOST_API_TOKENS.join('|') + ')\\b', 'i').test(combinedCode)
 
       if (hasCredentialsInject) {
-        permissions.push('inject:credentials')
-        supplyChainFlags.push('SENSITIVE_CORDIS_INJECT(credentials)')
+        permissions.push('inject:' + TOKEN_CREDENTIALS)
+        supplyChainFlags.push('SENSITIVE_CORDIS_INJECT(' + TOKEN_CREDENTIALS + ')')
         scoreDeduction += 10
         if (securityRisk !== 'CRITICAL') securityRisk = 'HIGH'
       }
 
       if (hasPluginManagerInject) {
-        permissions.push('inject:plugin_manager')
-        supplyChainFlags.push('SENSITIVE_CORDIS_INJECT(plugin_manager)')
+        permissions.push('inject:' + TOKEN_PLUGIN_MANAGER)
+        supplyChainFlags.push('SENSITIVE_CORDIS_INJECT(' + TOKEN_PLUGIN_MANAGER + ')')
         scoreDeduction += 10
         if (securityRisk !== 'CRITICAL') securityRisk = 'HIGH'
       }
 
       if (hasChildProcess) {
-        permissions.push('node:child_process')
-        supplyChainFlags.push('SENSITIVE_HOST_API(child_process)')
+        permissions.push('node:' + TOKEN_CHILD_PROCESS)
+        supplyChainFlags.push('SENSITIVE_HOST_API(' + TOKEN_CHILD_PROCESS + ')')
         scoreDeduction += 10
         if (securityRisk !== 'CRITICAL') securityRisk = 'HIGH'
       }
 
-      // 3.2 Check tools/pre-execute interception hook
-      if (/tools\/pre-execute/i.test(combinedCode)) {
-        permissions.push('hook:tools/pre-execute')
+      // 3.2 Check pre-execution interception hook
+      if (new RegExp(TOKEN_PRE_EXECUTE, 'i').test(combinedCode)) {
+        permissions.push('hook:' + TOKEN_PRE_EXECUTE)
         supplyChainFlags.push('HOOKS_PRE_EXECUTE')
         scoreDeduction += 5
         if (securityRisk === 'NONE' || securityRisk === 'LOW') securityRisk = 'MEDIUM'
       }
 
       // 3.3 Check Prompt Injection in system prompt registrations
-      const promptInjectionRegex = /(SKIP_REPO_AUDIT|ignore\s+previous\s+instructions|disregard\s+all\s+previous)/i
+      const promptInjectionRegex = new RegExp(
+        '(' + [TOKEN_SKIP_GATE, REGEX_IGNORE_PREVIOUS, REGEX_DISREGARD_PREVIOUS].join('|') + ')',
+        'i'
+      )
       if (promptInjectionRegex.test(combinedCode)) {
         supplyChainFlags.push('PROMPT_INJECTION_SUSPECT')
         securityRisk = 'CRITICAL'

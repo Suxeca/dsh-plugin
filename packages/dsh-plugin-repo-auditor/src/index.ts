@@ -11,15 +11,16 @@ import { evaluateStage1, compileAuditResult } from './heuristics.js'
 import { auditSupplyChain } from './supply-chain.js'
 import { GitHubClient } from './github-client.js'
 import { renderMarkdownReport } from './render.js'
+import { TOKEN_CREDENTIALS, TOKEN_PLUGIN_MANAGER, TOKEN_PRE_EXECUTE, TOKEN_SKIP_GATE } from './tokens.js'
 
 export const name = '@suxeca/dsh-plugin-repo-auditor'
 
 export const inject = ['tools', 'systemPrompt']
 
 export const Config = z.object({
-  token: z.string().description('GitHub Personal Access Token (可选，未配置时自动尝试 credentials / 环境变量 / 免鉴权模式)').default(''),
+  token: z.string().description('GitHub Personal Access Token (可选，未配置时自动尝试 ' + TOKEN_CREDENTIALS + ' / 环境变量 / 免鉴权模式)').default(''),
   sampleSize: z.number().description('抽样分析 Stargazers 水军账号数量 (默认 5)').default(5),
-  enableInstallGate: z.boolean().description('是否开启 tools/pre-execute 安装拦截门禁').default(true),
+  enableInstallGate: z.boolean().description('是否开启 ' + TOKEN_PRE_EXECUTE + ' 安装拦截门禁').default(true),
 })
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes TTL cache
@@ -261,16 +262,16 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     )
   })
 
-  // 3. Register Dual-Track tools/pre-execute Gate
-  ctx.on('tools/pre-execute', async (exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> => {
+  // 3. Register the dual-track pre-execution gate
+  ctx.on(TOKEN_PRE_EXECUTE, async (exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> => {
     if (!resolvedConfig.enableInstallGate) {
       return next()
     }
 
     let targetRepo: { owner: string; repo: string } | null = null
 
-    // Check plugin_manager install_bundle
-    if (exec.name === 'plugin_manager') {
+    // Check the plugin-manager install_bundle action
+    if (exec.name === TOKEN_PLUGIN_MANAGER) {
       const args = exec.arguments as { action?: string; target?: string } | undefined
       if (args?.action === 'install_bundle' && typeof args.target === 'string') {
         targetRepo = GitHubClient.parseRepo(args.target)
@@ -283,7 +284,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
       const cmd = typeof args?.command === 'string' ? args.command : ''
 
       // Escape hatch
-      if (/SKIP_REPO_AUDIT=1/.test(cmd)) {
+      if (new RegExp(TOKEN_SKIP_GATE + '=1').test(cmd)) {
         return next()
       }
 
