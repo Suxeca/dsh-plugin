@@ -156,7 +156,27 @@ fi
 printf '    HEAD %s is on origin/%s\n' "${HEAD_SHA:0:7}" "$BRANCH"
 
 log "building $PKG_DIR_NAME"
-[ -f "$PKG_DIR/scripts/build.sh" ] || die "missing $PKG_DIR/scripts/build.sh"
+
+# Two build conventions exist in this monorepo: the scaffolded packages ship a
+# scripts/build.sh (which links the DSH checkout), while the tsdown/tsc packages
+# build through their own package.json "build" script. Support both, refuse
+# neither silently: a package with neither is an explicit error.
+if [ -f "$PKG_DIR/scripts/build.sh" ]; then
+  BUILD_CMD=(bash "$PKG_DIR/scripts/build.sh")
+  BUILD_LABEL="scripts/build.sh"
+elif node -e 'process.exit((JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).scripts||{}).build ? 0 : 1)' "$PKG_DIR/package.json"; then
+  BUILD_CMD=(npm run build --prefix "$PKG_DIR" --silent)
+  BUILD_LABEL="npm run build"
+elif [ -f "$PKG_DIR/lib/index.js" ]; then
+  # Hand-written packages ship a committed lib/ and have nothing to compile.
+  # Safe only because the freshness gate below still runs, and the artifact gate
+  # requires lib/index.js to exist and be staged.
+  BUILD_CMD=(true)
+  BUILD_LABEL="none (prebuilt lib/, no build step)"
+else
+  die "no build entrypoint for $PKG_DIR_NAME: no scripts/build.sh, no package.json build script, and no prebuilt lib/index.js"
+fi
+
 TMP="$(mktemp -d)"
 BUILD_LOG="$(mktemp)"
 KEEP_LOG=0
@@ -164,14 +184,14 @@ cleanup() { rm -rf "$TMP"; [ "$KEEP_LOG" -eq 1 ] || rm -f "$BUILD_LOG"; }
 trap cleanup EXIT
 
 if [ "$VERBOSE" -eq 1 ]; then
-  bash "$PKG_DIR/scripts/build.sh"
+  "${BUILD_CMD[@]}"
 else
-  if ! bash "$PKG_DIR/scripts/build.sh" >"$BUILD_LOG" 2>&1; then
+  if ! "${BUILD_CMD[@]}" >"$BUILD_LOG" 2>&1; then
     KEEP_LOG=1
     tail -n 40 "$BUILD_LOG" >&2 || true
-    die "build failed (full log kept at $BUILD_LOG)"
+    die "build failed via $BUILD_LABEL (full log kept at $BUILD_LOG)"
   fi
-  printf '    build ok\n'
+  printf '    build ok (%s)\n' "$BUILD_LABEL"
 fi
 
 # --- GATE 2c: lib/ freshness — never publish a stale build ------------------
@@ -317,7 +337,7 @@ if [ "$REMOTE_EXISTS" -eq 0 ]; then
   die "remote repository $REPO_SLUG does not exist (or gh is unauthenticated).
        This script never creates repositories. Create it first, then confirm:
          gh repo create $REPO_SLUG --public --description \"$REPO_DESC\"
-         for t in $REPO_TOPICS; do gh repo edit $REPO_SLUG --add-topic \"$t\"; done"
+         for t in $REPO_TOPICS; do gh repo edit $REPO_SLUG --add-topic \"\$t\"; done"
 fi
 printf '    remote %s exists\n' "$REPO_SLUG"
 # --- commit + push -----------------------------------------------------------
