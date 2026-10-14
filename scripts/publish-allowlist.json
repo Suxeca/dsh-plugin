@@ -1,0 +1,116 @@
+{
+  "$schema-note": "Whitelist for scripts/release-plugin.sh. Only packages/* listed here may be published to a standalone repo. third-party/* is always refused.",
+  "guardMarkers": [
+    "SKIP_REPO_AUDIT",
+    "tools/pre-execute",
+    "child_process",
+    "execSync",
+    "spawnSync",
+    "execFile",
+    "plugin_manager",
+    "ctx.credentials"
+  ],
+  "excludeFromArtifacts": [
+    "*.tsbuildinfo",
+    "node_modules",
+    "*.tgz",
+    "src",
+    "tests"
+  ],
+  "packages": {
+    "dsh-client-ui-session-switcher": {
+      "repo": "Suxeca/dsh-client-ui-session-switcher",
+      "description": "DSH session switcher: Ctrl+K command palette to create/archive/rename/search sessions, plus Ctrl+[/] cycling and VSCode-style shortcut layout.",
+      "topics": [
+        "deepseek-harness",
+        "dsh-plugin",
+        "cordis",
+        "ai-agent",
+        "session-management",
+        "command-palette",
+        "productivity"
+      ]
+    },
+    "dsh-external-dirs": {
+      "repo": "Suxeca/dsh-external-dirs",
+      "description": "DSH sidebar External Directories tab: browse read-only paths outside the session workspace and reuse the native file preview.",
+      "topics": [
+        "deepseek-harness",
+        "dsh-plugin",
+        "cordis",
+        "ai-agent",
+        "file-browser",
+        "sidebar",
+        "developer-tools"
+      ]
+    },
+    "dsh-pdf-drop": {
+      "repo": "Suxeca/dsh-pdf-drop",
+      "description": "Drop PDFs/documents onto the DSH Web composer: streamed upload into the current session workspace plus automatic @file mention insertion.",
+      "topics": [
+        "deepseek-harness",
+        "dsh-plugin",
+        "cordis",
+        "ai-agent",
+        "file-upload",
+        "drag-and-drop",
+        "pdf"
+      ]
+    },
+    "dsh-dev-probes": {
+      "repo": "Suxeca/dsh-dev-probes",
+      "description": "Read-only DSH plugin development probes: validate agent preset composition, verify client boot-graph presence, and preflight profile bundles before a restart.",
+      "topics": [
+        "deepseek-harness",
+        "dsh-plugin",
+        "cordis",
+        "ai-agent",
+        "developer-tools",
+        "preflight",
+        "diagnostics",
+        "plugin-development"
+      ]
+    },
+    "dsh-science-map": {
+      "repo": "Suxeca/dsh-science-map",
+      "description": "Science Map for DSH: compiler and toolkit that turns a research reasoning flow into an evolving, gated evolution map.",
+      "topics": [
+        "deepseek-harness",
+        "dsh-plugin",
+        "cordis",
+        "ai-agent",
+        "research",
+        "knowledge-graph",
+        "visualization"
+      ]
+    },
+    "dsh-note-board": {
+      "repo": "Suxeca/dsh-note-board",
+      "description": "DSH per-session Markdown note board as a third conversation tab: KaTeX rendering, incremental system-prompt injection, and adversarial audit verdicts.",
+      "topics": [
+        "deepseek-harness",
+        "dsh-plugin",
+        "cordis",
+        "ai-agent",
+        "markdown",
+        "notes",
+        "katex",
+        "context-management"
+      ]
+    },
+    "dsh-plugin-repo-auditor": {
+      "repo": "Suxeca/dsh-plugin-repo-auditor",
+      "description": "DSH native plugin: audit GitHub repos for fake stars, stargazer bot farms and hollow codebases using CMU StarScout heuristics, plus static supply-chain and sensitive-permission inspection.",
+      "topics": [
+        "deepseek-harness",
+        "dsh-plugin",
+        "cordis",
+        "ai-agent",
+        "github-security",
+        "fake-stars",
+        "supply-chain-security",
+        "repo-auditor"
+      ]
+    }
+  }
+}

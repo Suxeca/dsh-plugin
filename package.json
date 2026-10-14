@@ -9,6 +9,8 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "new:package": "node scripts/new-package.mjs",
+    "precheck:plugins": "node scripts/local-precheck.mjs",
+    "release:plugin": "bash scripts/release-plugin.sh",
     "release:auditor": "bash scripts/release-auditor.sh"
   },
   "devDependencies": {
