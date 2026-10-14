@@ -250,7 +250,40 @@ PKG_LICENSE="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1],"u
 [ "$PKG_LICENSE" = "MIT" ] || die "$PKG_DIR_NAME declares license='$PKG_LICENSE'; the allowlist requires \"MIT\"
        fix it first: set \"license\": \"MIT\" in $PKG_REL/package.json"
 
-cp "$PKG_DIR/package.json"     "$TMP/package.json"
+# The mirror is a PREBUILT artifact, so the manifest it ships must not ask the
+# consumer to build. pnpm runs "prepare" for git dependencies, so a leftover
+# "prepare": "tsdown" would rebuild on every install — slow, and a new failure
+# mode in an environment that has no build toolchain. Build-only lifecycle hooks
+# are therefore dropped from the mirrored manifest.
+#
+# preinstall/install/postinstall are NOT dropped: those can carry real
+# install-time behaviour, and silently removing them would change what the
+# package does. Their presence is a human decision, so the release stops here.
+node -e '
+  const fs = require("fs");
+  const [srcPath, outPath] = process.argv.slice(1);
+  const pkg = JSON.parse(fs.readFileSync(srcPath, "utf8"));
+  const scripts = pkg.scripts || {};
+  const INSTALL_HOOKS = ["preinstall", "install", "postinstall"];
+  const present = INSTALL_HOOKS.filter((h) => typeof scripts[h] === "string" && scripts[h].trim());
+  if (present.length) {
+    console.error("install-time lifecycle hooks present: " + present.join(", "));
+    process.exit(3);
+  }
+  const BUILD_ONLY = ["prepare", "prepack", "prepublish", "prepublishOnly"];
+  const dropped = BUILD_ONLY.filter((h) => typeof scripts[h] === "string" && scripts[h].trim());
+  for (const h of dropped) delete scripts[h];
+  if (Object.keys(scripts).length === 0) delete pkg.scripts; else pkg.scripts = scripts;
+  fs.writeFileSync(outPath, JSON.stringify(pkg, null, 2) + "\n");
+  if (dropped.length) console.log("    dropped build-only lifecycle scripts: " + dropped.join(", "));
+' "$PKG_DIR/package.json" "$TMP/package.json" || {
+  rc=$?
+  if [ "$rc" -eq 3 ]; then
+    die "$PKG_DIR_NAME declares an install-time lifecycle hook (preinstall/install/postinstall).
+       Refusing to publish it silently: decide explicitly whether the mirror needs it."
+  fi
+  die "failed to prepare the mirrored package.json"
+}
 cp "$PKG_DIR/cordis.patch.yml" "$TMP/cordis.patch.yml"
 cp "$ROOT/LICENSE"             "$TMP/LICENSE"
 
