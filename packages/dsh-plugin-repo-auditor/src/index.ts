@@ -1,6 +1,6 @@
 /**
- * @suxeca/dsh-plugin-repo-auditor
- * Native DSH plugin for GitHub star/hollow repository auditing based on CMU heuristics.
+ * @suxeca/dsh-plugin-repo-auditor (v0.2.0)
+ * Native DSH plugin for GitHub star/hollow repository auditing and supply chain security inspection.
  */
 
 import type { Context } from 'cordis'
@@ -8,6 +8,7 @@ import { defineTool, type PreToolDecision, type ToolExecution } from '@deepseek-
 import z from 'schemastery'
 import type { BatchAuditOutput, PluginConfig, RepoAuditResult } from './types.js'
 import { evaluateStage1, compileAuditResult } from './heuristics.js'
+import { auditSupplyChain } from './supply-chain.js'
 import { GitHubClient } from './github-client.js'
 import { renderMarkdownReport } from './render.js'
 
@@ -33,7 +34,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
   const client = new GitHubClient(ctx, resolvedConfig)
   const auditCache = new Map<string, { expiresAt: number; data: RepoAuditResult }>()
 
-  // Helper to audit a single repository
+  // Helper to audit a single repository (Heuristics + Zero-quota Supply Chain)
   async function auditSingleRepo(
     owner: string,
     repo: string,
@@ -53,13 +54,29 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     const repoData = await client.getRepo(owner, repo, options.signal)
     const stage1 = evaluateStage1(repoData)
 
+    // Run Zero-quota Supply Chain Inspection (Raw CDN)
+    let supplyChainEval = undefined
+    try {
+      supplyChainEval = await auditSupplyChain(
+        client,
+        owner,
+        repo,
+        repoData.default_branch ?? 'main',
+        options.signal
+      )
+    } catch {
+      // Ignore supply chain check failures
+    }
+
     // Dynamic Sampling Strategy:
     // 1. Explicitly disabled (e.g. pre-execute gate with 5s timeout): skip sampling
-    // 2. Unauthenticated mode (60 req/hr): strictly skip sampling if Stage 1 is healthy (score >= 85),
+    // 2. Supply chain already flagged critical malware: skip sampling
+    // 3. Unauthenticated mode (60 req/hr): strictly skip sampling if Stage 1 is healthy (score >= 85),
     //    consuming exactly 1 API call per healthy repo! Only sample when Stage 1 shows suspicion (score < 85).
-    // 3. Authenticated mode (5000 req/hr): full sampling enabled.
+    // 4. Authenticated mode (5000 req/hr): full sampling enabled.
     const shouldSample =
       options.allowSample !== false &&
+      !supplyChainEval?.forceGradeF &&
       repoData.stargazers_count >= 10 &&
       (!client.isUnauthenticated() || stage1.score < 85)
 
@@ -78,7 +95,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
       }
     }
 
-    const result = compileAuditResult(repoData, stage1, sampledUsers)
+    const result = compileAuditResult(repoData, stage1, sampledUsers, supplyChainEval)
 
     // Store into cache
     auditCache.set(cacheKey, {
@@ -94,7 +111,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     return ctx.systemPrompt.section({
       name: 'tool:audit-github-repos',
       order: 520,
-      text: 'When recommending open-source GitHub repositories, evaluating unknown or trending tools, or before installing packages directly from GitHub, use the `audit_github_repos` tool to verify repository authenticity, star legitimacy, and check for fake stars or hollow repository anomalies.',
+      text: 'When recommending open-source GitHub repositories, evaluating unknown or trending tools, or before installing packages directly from GitHub, use the `audit_github_repos` tool to verify repository authenticity, star legitimacy, supply chain security, and check for fake stars, malware hooks, or hollow repository anomalies.',
     })
   })
 
@@ -104,7 +121,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
       defineTool({
         name: 'audit_github_repos',
         description:
-          'Audit GitHub repositories for fake stars, hollow codebases, or bot networks using CMU heuristic metrics (arXiv:2412.13459). Supports batch input with fork/watcher ratios and stargazer sampling.',
+          'Audit GitHub repositories for fake stars, hollow codebases, bot networks, and supply chain malware using CMU heuristic metrics and raw static inspection.',
         parameters: {
           repos: {
             type: 'array',
@@ -145,6 +162,17 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
                     botSampleRatio: { type: 'number' },
                     sampledCount: { type: 'number' },
                     lowQualityCount: { type: 'number' },
+                    supplyChain: {
+                      type: 'object',
+                      additionalProperties: false,
+                      properties: {
+                        isDshPlugin: { type: 'boolean', required: true },
+                        securityRisk: { type: 'string', required: true },
+                        installScripts: { type: 'array', required: true, items: { type: 'string' } },
+                        permissions: { type: 'array', required: true, items: { type: 'string' } },
+                        supplyChainFlags: { type: 'array', required: true, items: { type: 'string' } },
+                      },
+                    },
                     cached: { type: 'boolean' },
                     error: { type: 'string' },
                   },
@@ -166,7 +194,6 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
           const forceRefresh = args.forceRefresh === true
 
           await client.resolveToken()
-          const isUnauthenticated = client.isUnauthenticated()
 
           const audits: RepoAuditResult[] = []
 
@@ -234,7 +261,7 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
     )
   })
 
-  // 3. Register tools/pre-execute Gate
+  // 3. Register Dual-Track tools/pre-execute Gate
   ctx.on('tools/pre-execute', async (exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> => {
     if (!resolvedConfig.enableInstallGate) {
       return next()
@@ -289,20 +316,42 @@ export function apply(ctx: Context, config: PluginConfig = {}): void {
         signal: timeoutController.signal,
       }).finally(() => clearTimeout(timeoutId))
 
-      const isHighRisk =
+      // Dual-track risk determination:
+      // Track 1: Fake star / hollow repository anomalies (Grade D/F)
+      const isStarRisk =
         audit.grade === 'D' ||
         audit.grade === 'F' ||
         audit.flags.includes('CRITICAL_LOW_FORK_RATIO') ||
         audit.flags.includes('HOLLOW_REPO_SIZE')
 
-      if (isHighRisk) {
-        const flagsDesc = audit.flags.length > 0 ? audit.flags.join(', ') : '异常指标'
+      // Track 2: Supply chain risk / sensitive permissions
+      const isSupplyChainRisk =
+        audit.supplyChain &&
+        ['MEDIUM', 'HIGH', 'CRITICAL'].includes(audit.supplyChain.securityRisk)
+
+      if (isStarRisk || isSupplyChainRisk) {
+        const reasonsList: string[] = []
+        if (isStarRisk) {
+          reasonsList.push(`信度评级: ${audit.grade} (得分: ${audit.score})`)
+        }
+        if (audit.supplyChain && audit.supplyChain.securityRisk !== 'NONE') {
+          reasonsList.push(`供应链风险: ${audit.supplyChain.securityRisk}`)
+          if (audit.supplyChain.installScripts.length > 0) {
+            reasonsList.push(`含安装脚本: ${audit.supplyChain.installScripts.map(s => s.split(':')[0]).join(', ')}`)
+          }
+          if (audit.supplyChain.permissions.length > 0) {
+            reasonsList.push(`敏感权限: ${audit.supplyChain.permissions.join(', ')}`)
+          }
+        }
+
+        const summaryStr = reasonsList.join('; ') || (audit.flags.length > 0 ? audit.flags.join(', ') : '存在异常')
+
         return {
           kind: 'ask',
-          reason: `Repo ${targetRepo.owner}/${targetRepo.repo} has low credibility (Grade: ${audit.grade}, Score: ${audit.score}). Flags: ${flagsDesc}`,
+          reason: `Repo ${targetRepo.owner}/${targetRepo.repo} triggered security gate (${summaryStr})`,
           displayReason: {
-            zh: `检测到目标仓库 ${targetRepo.owner}/${targetRepo.repo} 疑似刷星或空壳项目（评分 ${audit.score}/100，评级 ${audit.grade}，告警：${flagsDesc}）。确认要继续安装/执行吗？`,
-            en: `Repository ${targetRepo.owner}/${targetRepo.repo} is suspected of fake stars or hollow codebase (Score: ${audit.score}/100, Grade: ${audit.grade}, Flags: ${flagsDesc}). Proceed with execution?`,
+            zh: `检测到目标仓库 ${targetRepo.owner}/${targetRepo.repo} 存在安全风险（${summaryStr}）。确认要继续安装/执行吗？`,
+            en: `Security risk detected for repository ${targetRepo.owner}/${targetRepo.repo} (${summaryStr}). Proceed with execution?`,
           },
         }
       }

@@ -1,5 +1,5 @@
 /**
- * GitHub API Client with token resolution, rate limit monitoring, and abort support.
+ * GitHub API Client with token resolution, rate limit monitoring, raw CDN fetch, and abort support.
  */
 
 import type { Context } from 'cordis'
@@ -18,7 +18,11 @@ export class GitHubClient {
   constructor(private ctx: Context, private config: PluginConfig) {}
 
   /**
-   * Resolve token via 3-tier fallback.
+   * Resolve token via 4-tier fallback:
+   * 1. Plugin Config
+   * 2. Cordis credentials service
+   * 3. process.env.GITHUB_TOKEN
+   * 4. User dotfiles (~/.bashrc, ~/.env, .env)
    */
   async resolveToken(): Promise<void> {
     if (this.config.token && this.config.token.trim().length > 0) {
@@ -45,6 +49,31 @@ export class GitHubClient {
       this.token = process.env.GITHUB_TOKEN.trim()
       this.tokenSource = 'env'
       return
+    }
+
+    // Tier 4: Inspect local dotfiles (~/.bashrc, ~/.env, .env)
+    try {
+      const fs = await import('node:fs')
+      const path = await import('node:path')
+      const os = await import('node:os')
+      const candidates = [
+        path.join(process.cwd(), '.env'),
+        path.join(os.homedir(), '.env'),
+        path.join(os.homedir(), '.bashrc'),
+      ]
+      for (const p of candidates) {
+        if (fs.existsSync(p)) {
+          const content = fs.readFileSync(p, 'utf8')
+          const m = content.match(/(?:export\s+)?GITHUB_TOKEN=[\x27\x22]?([a-zA-Z0-9_]+)[\x27\x22]?/)
+          if (m && m[1] && m[1].trim().length > 0) {
+            this.token = m[1].trim()
+            this.tokenSource = 'env'
+            return
+          }
+        }
+      }
+    } catch {
+      // Ignore dotfile read errors
     }
 
     this.token = ''
@@ -81,7 +110,7 @@ export class GitHubClient {
   private async request<T>(url: string, signal?: AbortSignal): Promise<T> {
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github.v3+json',
-      'User-Agent': 'dsh-plugin-repo-auditor/0.0.1',
+      'User-Agent': 'dsh-plugin-repo-auditor/0.2.0',
     }
 
     if (this.token) {
@@ -114,6 +143,64 @@ export class GitHubClient {
   async getRepo(owner: string, repo: string, signal?: AbortSignal): Promise<GitHubRepoMetadata> {
     const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
     return await this.request<GitHubRepoMetadata>(url, signal)
+  }
+
+  /**
+   * Fetch raw file via GitHub Raw CDN (does NOT consume REST API rate limit).
+   * Falls back to REST API contents only if raw fetch encounters network failure and a token is present.
+   */
+  async fetchRawFile(
+    owner: string,
+    repo: string,
+    filePath: string,
+    defaultBranch: string = 'main',
+    signal?: AbortSignal
+  ): Promise<string | null> {
+    const cleanPath = filePath.replace(/^\/+/, '')
+    const rawUrl = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/${encodeURIComponent(defaultBranch)}/${cleanPath}`
+
+    const timeoutController = new AbortController()
+    const timer = setTimeout(() => timeoutController.abort(), 4000)
+
+    const abortHandler = () => timeoutController.abort()
+    if (signal) signal.addEventListener('abort', abortHandler)
+
+    try {
+      const headers: Record<string, string> = {
+        'User-Agent': 'dsh-plugin-repo-auditor/0.2.0',
+      }
+      if (this.token) {
+        headers.Authorization = `Bearer ${this.token}`
+      }
+
+      const res = await fetch(rawUrl, { headers, signal: timeoutController.signal })
+      if (res.ok) {
+        return await res.text()
+      }
+      if (res.status === 404) {
+        return null
+      }
+    } catch {
+      // Network failure on raw CDN
+    } finally {
+      clearTimeout(timer)
+      if (signal) signal.removeEventListener('abort', abortHandler)
+    }
+
+    // Fallback to REST API contents only when token is available to avoid consuming 60/hr quota
+    if (this.token) {
+      try {
+        const apiUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${cleanPath}?ref=${encodeURIComponent(defaultBranch)}`
+        const json = await this.request<{ content?: string; encoding?: string }>(apiUrl, signal)
+        if (json?.content && json.encoding === 'base64') {
+          return Buffer.from(json.content, 'base64').toString('utf8')
+        }
+      } catch {
+        return null
+      }
+    }
+
+    return null
   }
 
   async getStargazerSample(

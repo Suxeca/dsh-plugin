@@ -1,8 +1,8 @@
 /**
- * Markdown report renderer for GitHub Repo Auditor.
+ * Markdown report renderer for GitHub Repo Auditor (v0.2.0).
  */
 
-import type { BatchAuditOutput, RepoAuditResult } from './types.js'
+import type { BatchAuditOutput, RepoAuditResult, SecurityRiskLevel } from './types.js'
 
 function gradeEmoji(grade: RepoAuditResult['grade']): string {
   switch (grade) {
@@ -10,14 +10,25 @@ function gradeEmoji(grade: RepoAuditResult['grade']): string {
     case 'B': return '🔵 B (正常)'
     case 'C': return '🟡 C (轻微偏离)'
     case 'D': return '🟠 D (疑似异常)'
-    case 'F': return '🔴 F (重度刷星/空壳)'
+    case 'F': return '🔴 F (高危风险)'
+  }
+}
+
+function riskEmoji(risk?: SecurityRiskLevel): string {
+  switch (risk) {
+    case 'CRITICAL': return '🔥 恶意/极高危'
+    case 'HIGH': return '🔴 高危'
+    case 'MEDIUM': return '🟡 中危'
+    case 'LOW': return '🔵 低危'
+    case 'NONE': return '🟢 安全'
+    default: return '⚪ 未检'
   }
 }
 
 export function renderMarkdownReport(data: BatchAuditOutput): string {
   const lines: string[] = []
 
-  lines.push('### 🛡️ GitHub 仓库真实性与防刷星审计报告 (CMU Heuristics)')
+  lines.push('### 🛡️ GitHub 仓库真实性与防刷星审计报告 (CMU Heuristics & Supply Chain)')
   lines.push('')
 
   if (data.audits.length === 0) {
@@ -26,12 +37,12 @@ export function renderMarkdownReport(data: BatchAuditOutput): string {
   }
 
   // Summary Table
-  lines.push('| 仓库 (Repository) | 评分 | 评级 | Stars | Fork 比率 | Watcher 比率 | 异常标记 | 结论 |')
-  lines.push('| :--- | :---: | :---: | :---: | :---: | :---: | :--- | :--- |')
+  lines.push('| 仓库 (Repository) | 评分 | 评级 | 供应链安全 | Stars | Fork 比率 | Watcher 比率 | 异常标记 | 结论 |')
+  lines.push('| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- | :--- |')
 
   for (const item of data.audits) {
     if (item.error) {
-      lines.push(`| [${item.repo}](https://github.com/${item.repo}) | - | ⚠️ 失败 | - | - | - | \`ERROR\` | ${item.error} |`)
+      lines.push(`| [${item.repo}](https://github.com/${item.repo}) | - | ⚠️ 失败 | - | - | - | - | \`ERROR\` | ${item.error} |`)
       continue
     }
 
@@ -39,9 +50,10 @@ export function renderMarkdownReport(data: BatchAuditOutput): string {
     const forkRatioPct = `${(item.forkRatio * 100).toFixed(2)}%`
     const watcherRatioPct = `${(item.watcherRatio * 100).toFixed(2)}%`
     const cachedBadge = item.cached ? ' *(缓存)*' : ''
+    const scBadge = riskEmoji(item.supplyChain?.securityRisk)
 
     lines.push(
-      `| [${item.repo}](https://github.com/${item.repo})${cachedBadge} | **${item.score}** | ${gradeEmoji(item.grade)} | ${item.stars.toLocaleString()} | ${forkRatioPct} | ${watcherRatioPct} | ${flagsStr} | ${item.verdict} |`
+      `| [${item.repo}](https://github.com/${item.repo})${cachedBadge} | **${item.score}** | ${gradeEmoji(item.grade)} | ${scBadge} | ${item.stars.toLocaleString()} | ${forkRatioPct} | ${watcherRatioPct} | ${flagsStr} | ${item.verdict} |`
     )
   }
 
@@ -57,6 +69,34 @@ export function renderMarkdownReport(data: BatchAuditOutput): string {
     lines.push(`  - Fork / Star 比率: \`${(item.forkRatio * 100).toFixed(2)}%\` (正常参考值 ≥ 5%；< 2% 为严重异常)`)
     lines.push(`  - Watcher / Star 比率: \`${(item.watcherRatio * 100).toFixed(3)}%\` (正常参考值 ≥ 0.5%；< 0.1% 为严重异常)`)
     lines.push(`  - 代码与星标密度: \`${item.sizeKb < 30 && item.stars >= 100 ? '⚠️ 空壳代码警告 (Star >= 100 且体积 < 30KB)' : '正常'}\``)
+
+    // Supply chain and permissions details
+    if (item.supplyChain) {
+      const sc = item.supplyChain
+      lines.push(`- **🔒 供应链与 DSH 插件权限预检**:`)
+      lines.push(`  - 仓库形态: \`${sc.isDshPlugin ? 'DSH 官方/第三方插件包' : '标准开源仓库'}\` | 安全风险等级: **${riskEmoji(sc.securityRisk)}**`)
+      if (sc.installScripts.length > 0) {
+        lines.push(`  - 自动执行脚本 (Lifecycle Hooks):`)
+        for (const s of sc.installScripts) {
+          lines.push(`    - \`${s}\``)
+        }
+      } else {
+        lines.push(`  - 自动执行脚本: _无生命周期安装钩子 (无 preinstall/postinstall 等风险)_`)
+      }
+
+      if (sc.permissions.length > 0) {
+        lines.push(`  - 宿主敏感权限/能力调用:`)
+        for (const p of sc.permissions) {
+          lines.push(`    - \`${p}\``)
+        }
+      } else if (sc.isDshPlugin) {
+        lines.push(`  - 宿主敏感权限: _纯净无特权 (未请求 credentials/child_process/pre-execute 等特权)_`)
+      }
+
+      if (sc.supplyChainFlags.length > 0) {
+        lines.push(`  - 供应链安全告警: ${sc.supplyChainFlags.map(f => `\`${f}\``).join(' ')}`)
+      }
+    }
 
     if (item.sampledCount !== undefined && item.sampledCount > 0) {
       const botPct = ((item.botSampleRatio ?? 0) * 100).toFixed(1)

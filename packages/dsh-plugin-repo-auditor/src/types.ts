@@ -12,6 +12,7 @@ export interface GitHubRepoMetadata {
   size: number // in KB
   open_issues_count: number
   has_issues?: boolean
+  default_branch?: string
   created_at: string
   pushed_at: string
   archived: boolean
@@ -36,6 +37,16 @@ export interface SuspiciousAccountSummary {
   accountAgeDays: number
 }
 
+export type SecurityRiskLevel = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+
+export interface SupplyChainAuditResult {
+  isDshPlugin: boolean
+  securityRisk: SecurityRiskLevel
+  installScripts: string[]
+  permissions: string[]
+  supplyChainFlags: string[]
+}
+
 export interface RepoAuditResult {
   repo: string
   score: number // 0 - 100
@@ -54,6 +65,7 @@ export interface RepoAuditResult {
   sampledCount?: number
   lowQualityCount?: number
   suspiciousSamples?: SuspiciousAccountSummary[]
+  supplyChain?: SupplyChainAuditResult
   cached?: boolean
   error?: string
 }

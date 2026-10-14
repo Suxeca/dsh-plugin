@@ -3,6 +3,7 @@
  */
 
 import type { GitHubRepoMetadata, GitHubUserMetadata, RepoAuditResult, SuspiciousAccountSummary } from './types.js'
+import type { SupplyChainEvaluation } from './supply-chain.js'
 
 export interface Stage1Audit {
   score: number
@@ -143,10 +144,11 @@ export function inspectSampledUser(user: GitHubUserMetadata): SuspiciousAccountS
 export function compileAuditResult(
   repo: GitHubRepoMetadata,
   stage1: Stage1Audit,
-  sampledUsers?: GitHubUserMetadata[]
+  sampledUsers?: GitHubUserMetadata[],
+  supplyChainEval?: SupplyChainEvaluation
 ): RepoAuditResult {
-  let score = stage1.score
-  const flags = [...stage1.flags]
+  let score = stage1.score - (supplyChainEval?.scoreDeduction ?? 0)
+  const flags = [...stage1.flags, ...(supplyChainEval?.result.supplyChainFlags ?? [])]
 
   let botSampleRatio: number | undefined
   let sampledCount: number | undefined
@@ -173,10 +175,15 @@ export function compileAuditResult(
     }
   }
 
+  if (supplyChainEval?.forceGradeF) {
+    score = Math.min(score, 15)
+  }
   score = Math.max(0, Math.min(100, score))
 
   let grade: 'A' | 'B' | 'C' | 'D' | 'F' = 'A'
-  if (score >= 90) grade = 'A'
+  if (supplyChainEval?.forceGradeF) {
+    grade = 'F'
+  } else if (score >= 90) grade = 'A'
   else if (score >= 75) grade = 'B'
   else if (score >= 60) grade = 'C'
   else if (score >= 40) grade = 'D'
@@ -184,7 +191,9 @@ export function compileAuditResult(
 
   // Generate clear verdict
   let verdict = 'Healthy and credible open-source repository.'
-  if (grade === 'F' || flags.includes('CRITICAL_LOW_FORK_RATIO') || flags.includes('HOLLOW_REPO_SIZE')) {
+  if (supplyChainEval?.criticalVerdict) {
+    verdict = supplyChainEval.criticalVerdict
+  } else if (grade === 'F' || flags.includes('CRITICAL_LOW_FORK_RATIO') || flags.includes('HOLLOW_REPO_SIZE')) {
     verdict = 'High risk: Suspected fake star manipulation, hollow codebase, or bot network amplification.'
   } else if (grade === 'D') {
     verdict = 'Suspicious: Noticeable ratio anomalies or low-quality stargazer density detected.'
@@ -212,6 +221,7 @@ export function compileAuditResult(
     ...(sampledCount !== undefined ? { sampledCount } : {}),
     ...(lowQualityCount !== undefined ? { lowQualityCount } : {}),
     ...(suspiciousSamples.length > 0 ? { suspiciousSamples } : {}),
+    ...(supplyChainEval ? { supplyChain: supplyChainEval.result } : {}),
   }
 
   return JSON.parse(JSON.stringify(res)) as RepoAuditResult
