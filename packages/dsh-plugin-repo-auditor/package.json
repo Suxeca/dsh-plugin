@@ -16,7 +16,7 @@
       "patch": "./cordis.patch.yml"
     }
   },
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/dsh-llm": ">=0.0.1-rc <2",
     "@deepseek-ai/dsh-tools": ">=0.0.1-rc <2",
