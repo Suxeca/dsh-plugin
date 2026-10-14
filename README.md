@@ -16,15 +16,32 @@
 
 ---
 
-## 一键安装：GitHub Fake Star Detector
+## 一键安装：4 个独立可直装插件
 
-本仓库的旗舰插件 —— **GitHub 假星 / 水军 / 空壳项目审计器** —— 提供独立可安装的只读镜像仓库，**一条命令装好，无需 clone、无需构建**：
+下列插件已发布到**独立只读镜像仓**，**一条命令装好，无需 clone、无需构建**：
 
 ```sh
+# 旗舰：GitHub 假星 / 供应链审计器
 dsh plugin add github:Suxeca/dsh-plugin-repo-auditor
+
+# 科研：思维演化地图编译器
+dsh plugin add github:Suxeca/dsh-science-map
+
+# 科研：文献书签与本地研究知识库
+dsh plugin add github:Suxeca/dsh-literature-library
+
+# UI：Ctrl+K 会话快速切换
+dsh plugin add github:Suxeca/dsh-client-ui-session-switcher
 ```
 
-安装后即可在任意会话中直接调用原生工具：
+| 插件 | 独立仓 | 一键安装 | 审计 |
+|---|---|---|---|
+| **仓库审计器** `0.2.0` | [Suxeca/dsh-plugin-repo-auditor](https://github.com/Suxeca/dsh-plugin-repo-auditor) | `dsh plugin add github:Suxeca/dsh-plugin-repo-auditor` | **A · 100/100 · 0 flags** |
+| **思维演化地图** `0.1.0` | [Suxeca/dsh-science-map](https://github.com/Suxeca/dsh-science-map) | `dsh plugin add github:Suxeca/dsh-science-map` | **A · 100/100 · 0 flags** |
+| **文献研究库** `0.0.1` | [Suxeca/dsh-literature-library](https://github.com/Suxeca/dsh-literature-library) | `dsh plugin add github:Suxeca/dsh-literature-library` | **A · 100/100 · 0 flags** |
+| **会话快速切换** `0.1.0-rc.7` | [Suxeca/dsh-client-ui-session-switcher](https://github.com/Suxeca/dsh-client-ui-session-switcher) | `dsh plugin add github:Suxeca/dsh-client-ui-session-switcher` | **A · 100/100 · 0 flags** |
+
+安装审计器后，可在任意会话中直接调用原生工具：
 
 ```text
 audit_github_repos({ repos: ["owner/repo", "https://github.com/owner/repo"] })
@@ -48,6 +65,7 @@ audit_github_repos({ repos: ["owner/repo", "https://github.com/owner/repo"] })
 | 徽章 | 含义 | 判据 |
 |---|---|---|
 | ✅ **Audited / 真实** | 位于**已审计仓库**内的自研插件 | 仓库级 `audit_github_repos` 判定 **100/100 分，评级 A，0 flags**（2026-10-14） |
+| 🚀 **Standalone / 独立可直装** | 已发布到**独立只读镜像仓**，可一条命令安装 | `dsh plugin add github:Suxeca/<pkg>`；镜像内含预编译 `lib/`，**无需 clone、无需构建**（见下方「一键安装」） |
 | 📦 **Third-party 收录** | 上游开源项目，本地收录并增强 | 见[第三方收录索引](#第三方收录索引--vendored-third-party)；`third-party/` 各自保留上游许可证 |
 | 🔒 **Local-only / 本地独占** | **不建议公开安装**：内含本机凭据 / 绝对路径 / 私有端点假设 | 绑定本机环境，迁移后不可用 |
 | ⚠️ **Install-gated / 安装需审批** | 触及 `credentials` / `child_process` / `tools/pre-execute` 等敏感特权 | 安装时审计器**弹出 DSH 原生审批卡**，列出具体风险，经你确认后才放行 |
@@ -69,7 +87,7 @@ audit_github_repos({ repos: ["owner/repo", "https://github.com/owner/repo"] })
 
 | 插件 | 目录 / 包名 | 版本 | 核心能力 | 真实度 / 安全 |
 |---|---|---|---|---|
-| **仓库审计器** | [`packages/dsh-plugin-repo-auditor`](packages/dsh-plugin-repo-auditor)<br/>`@suxeca/dsh-plugin-repo-auditor` | `0.2.0` | GitHub 假星 / 水军 / 空壳项目审计 + 供应链投毒静态预检 + `tools/pre-execute` 安装门禁 | ✅ ⚠️ |
+| **仓库审计器** | [`packages/dsh-plugin-repo-auditor`](packages/dsh-plugin-repo-auditor)<br/>`@suxeca/dsh-plugin-repo-auditor`<br/>🚀 [独立仓](https://github.com/Suxeca/dsh-plugin-repo-auditor) | `0.2.0` | GitHub 假星 / 水军 / 空壳项目审计 + 供应链投毒静态预检 + `tools/pre-execute` 安装门禁 | ✅ ⚠️ 🚀 |
 | **代理链路守卫** | [`third-party/dsh-proxy-guard`](third-party/dsh-proxy-guard)<br/>`@dsh-external/dsh-proxy-guard` | `0.0.1` | 挂在 `tools/pre-execute`，硬拦截会切断 DSH 自身代理链路（`127.0.0.1:7897`）的 Bash 命令 | 📦 ⚠️ |
 | **GPT 兼容守卫** | [`third-party/dsh-gpt-compat`](third-party/dsh-gpt-compat)<br/>`dsh-gpt-compat` | `0.2.3` | 对 GPT/Codex 冗余沙箱提权参数做 **fail-closed** 守卫，消除提权歧义 | 📦 |
 | **搜索凭据网关** | [`packages/dsh-search-gateway`](packages/dsh-search-gateway)<br/>`@suxeca/dsh-search-gateway` | `0.0.1` | 统一搜索凭据网关：密钥失效自动转移、限流即停，**绝不为绕过配额而换号** | ✅ ⚠️ |
@@ -83,9 +101,9 @@ audit_github_repos({ repos: ["owner/repo", "https://github.com/owner/repo"] })
 | **学术 Beamer 引擎** | [`packages/dsh-academic-beamer`](packages/dsh-academic-beamer)<br/>`@suxeca/dsh-academic-beamer` | `0.0.1` | 学术 Beamer 流水线：叙事解构 → 16:9 深蓝模板生成 → 代数/数字门禁 → Tectonic 编译 | ✅ |
 | **第一性原理推导审查** | [`packages/dsh-physics-derivation`](packages/dsh-physics-derivation)<br/>`@suxeca/dsh-physics-derivation` | `0.0.1` | 推导审查 + 对抗同行评议：逐等号闭合性、四步法定级、公理起点检验、拒稿挑刺 | ✅ |
 | **科研写作核心** | [`packages/dsh-writing-core`](packages/dsh-writing-core)<br/>`@suxeca/dsh-writing-core` | `0.2.0` | 科研写作微单元：来源引文绑定、提纲/起稿、审稿回复、跨单元一致性复核 | ✅ |
-| **思维演化地图** | [`packages/dsh-science-map`](packages/dsh-science-map)<br/>`@suxeca/dsh-science-map` | `0.1.0` | 科研思维与计算流演化地图编译器 + 认知门禁验证器 | ✅ 🌐 |
+| **思维演化地图** | [`packages/dsh-science-map`](packages/dsh-science-map)<br/>`@suxeca/dsh-science-map`<br/>🚀 [独立仓](https://github.com/Suxeca/dsh-science-map) | `0.1.0` | 科研思维与计算流演化地图编译器 + 认知门禁验证器 | ✅ 🌐 🚀 |
 | **会话笔记看板** | [`packages/dsh-note-board`](packages/dsh-note-board)<br/>`@suxeca/dsh-note-board` | `0.2.1` | 对话视图第三页签「笔记看板」：KaTeX 渲染、每轮增量注入系统提示、对抗审计判决 | ✅ |
-| **文献研究库** | [`packages/dsh-literature-library`](packages/dsh-literature-library)<br/>`@suxeca/dsh-literature-library` | `0.0.1` | 文献书签与本地研究知识库：鉴权持久化书签，供 radar briefing 复用 | ✅ |
+| **文献研究库** | [`packages/dsh-literature-library`](packages/dsh-literature-library)<br/>`@suxeca/dsh-literature-library`<br/>🚀 [独立仓](https://github.com/Suxeca/dsh-literature-library) | `0.0.1` | 文献书签与本地研究知识库：鉴权持久化书签，供 radar briefing 复用 | ✅ 🚀 |
 
 ### 🛠️ 插件开发与工程生产线 (Plugin Dev & Engineering)
 
@@ -104,7 +122,7 @@ audit_github_repos({ repos: ["owner/repo", "https://github.com/owner/repo"] })
 
 | 插件 | 目录 / 包名 | 版本 | 核心能力 | 真实度 / 安全 |
 |---|---|---|---|---|
-| **会话快速切换** | [`packages/dsh-client-ui-session-switcher`](packages/dsh-client-ui-session-switcher)<br/>`@suxeca/dsh-client-ui-session-switcher` | `0.1.0-rc.7` | `Ctrl+K` 调色板（新建/归档/重命名/搜索/皮肤/工作区分组）、`Ctrl+[` `Ctrl+]` 循环切会话、快捷键自定义 | ✅ 🌐 |
+| **会话快速切换** | [`packages/dsh-client-ui-session-switcher`](packages/dsh-client-ui-session-switcher)<br/>`@suxeca/dsh-client-ui-session-switcher`<br/>🚀 [独立仓](https://github.com/Suxeca/dsh-client-ui-session-switcher) | `0.1.0-rc.7` | `Ctrl+K` 调色板（新建/归档/重命名/搜索/皮肤/工作区分组）、`Ctrl+[` `Ctrl+]` 循环切会话、快捷键自定义 | ✅ 🌐 🚀 |
 | **外部目录 Tab** | [`packages/dsh-external-dirs`](packages/dsh-external-dirs)<br/>`@suxeca/dsh-external-dirs` | `0.0.1` | 官方侧边栏「外部目录」Tab：只读浏览会话工作区之外的目录，点击文件复用官方预览 | ✅ |
 | **PDF 拖放直传** | [`packages/dsh-pdf-drop`](packages/dsh-pdf-drop)<br/>`@suxeca/dsh-pdf-drop` | `0.1.1` | 拖放 PDF/文档到输入框：流式上传进当前会话工作区 + 自动注入 `@file` 引用 | ✅ |
 | **移动端润色** | [`packages/dsh-mobile-polish`](packages/dsh-mobile-polish)<br/>`@suxeca/dsh-mobile-polish` | `0.1.0` | Android/移动端焦点布局：全宽对话容器 + 紧凑单行输入控件 + 安全区对齐 | ✅ |
@@ -217,13 +235,18 @@ audit_github_repos({ repos: ["owner/repo", "https://github.com/owner/repo"] })
 
 ## 安装与装配方式
 
-### 方式 A：一键安装独立插件（推荐 —— 审计器）
+### 方式 A：一键安装独立插件（推荐 —— 4 个已发布插件）
 
 ```sh
-dsh plugin add github:Suxeca/dsh-plugin-repo-auditor
+dsh plugin add github:Suxeca/dsh-plugin-repo-auditor          # 审计器
+dsh plugin add github:Suxeca/dsh-science-map                  # 思维演化地图
+dsh plugin add github:Suxeca/dsh-literature-library           # 文献研究库
+dsh plugin add github:Suxeca/dsh-client-ui-session-switcher   # 会话快速切换
 ```
 
-只读镜像自带编译产物，**无需构建**。真源：[`packages/dsh-plugin-repo-auditor`](packages/dsh-plugin-repo-auditor)。
+只读镜像自带编译产物（`lib/`），**无需 clone、无需构建**。真源分别是本仓库的 `packages/dsh-plugin-repo-auditor`、`packages/dsh-science-map`、`packages/dsh-literature-library`、`packages/dsh-client-ui-session-switcher` —— 开发与修复都在母仓发生，镜像随后同步。
+
+其余插件（如 `dsh-note-board`、科研核心、界面增强等）尚未发布独立仓，请使用下方方式 B / C / D 装配。
 
 ### 方式 B：超级模组注入（推荐开发调试，即时生效）
 
@@ -360,19 +383,29 @@ pnpm build          # 构建全部包
 
 Every entry is a **Cordis Plugin** — an isolated unit mounted on DSH's Cordis kernel. Each can be injected at runtime for zero-restart debugging, or installed as a bundle into a profile for persistence. Plugins collaborate over the Cordis service bus (`ctx.*`) rather than through hardcoded coupling, which is what lets a single **AI Agent** host drive the whole matrix.
 
-## Install the flagship plugin in one command
+## Install a standalone plugin in one command
 
-The headline capability of this repo is **GitHub Fake Star Detector** — an auditor for fake stars, stargazer bot farms, hollow repositories, and poisoned install scripts. It ships as a standalone, read-only mirror repository so it can be installed without cloning or building anything:
+Four plugins are published as standalone, read-only mirror repositories, so each installs without cloning or building anything:
 
 ```sh
-dsh plugin add github:Suxeca/dsh-plugin-repo-auditor
+dsh plugin add github:Suxeca/dsh-plugin-repo-auditor          # fake-star + supply-chain auditor
+dsh plugin add github:Suxeca/dsh-science-map                  # research evolution-map compiler
+dsh plugin add github:Suxeca/dsh-literature-library           # literature bookmarks / research library
+dsh plugin add github:Suxeca/dsh-client-ui-session-switcher   # Ctrl+K session switcher
 ```
 
-Then call the native tool from any session:
+The headline capability of this repo is **GitHub Fake Star Detector** — an auditor for fake stars, stargazer bot farms, hollow repositories, and poisoned install scripts. Then call the native tool from any session:
 
 ```text
 audit_github_repos({ repos: ["owner/repo"] })
 ```
+
+| Standalone repository | Install command | Audit |
+|---|---|---|
+| [dsh-plugin-repo-auditor](https://github.com/Suxeca/dsh-plugin-repo-auditor) | `dsh plugin add github:Suxeca/dsh-plugin-repo-auditor` | A · 100/100 · 0 flags |
+| [dsh-science-map](https://github.com/Suxeca/dsh-science-map) | `dsh plugin add github:Suxeca/dsh-science-map` | A · 100/100 · 0 flags |
+| [dsh-literature-library](https://github.com/Suxeca/dsh-literature-library) | `dsh plugin add github:Suxeca/dsh-literature-library` | A · 100/100 · 0 flags |
+| [dsh-client-ui-session-switcher](https://github.com/Suxeca/dsh-client-ui-session-switcher) | `dsh plugin add github:Suxeca/dsh-client-ui-session-switcher` | A · 100/100 · 0 flags |
 
 | | |
 |---|---|
@@ -417,6 +450,7 @@ This repository itself was scored by `audit_github_repos` on **2026-10-14**: **1
 | Badge | Meaning | Basis |
 |---|---|---|
 | ✅ **Audited** | First-party plugin inside the audited repository | Repo-level `audit_github_repos` verdict: 100/100, grade A, 0 flags (2026-10-14) |
+| 🚀 **Standalone installable** | Published to its own read-only mirror repo | `dsh plugin add github:Suxeca/<pkg>` — the mirror ships prebuilt `lib/`, so no clone and no build step |
 | 📦 **Third-party vendored** | Upstream open-source project, vendored and enhanced locally | `third-party/` retains each upstream license |
 | 🔒 **Local-only** | **Not intended for public install** — assumes local credentials, absolute paths, or private endpoints | Bound to this machine's environment |
 | ⚠️ **Install-gated** | Touches `credentials` / `child_process` / `tools/pre-execute` | The auditor raises an approval card before install |
