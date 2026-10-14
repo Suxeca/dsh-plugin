@@ -8,7 +8,8 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "new:package": "node scripts/new-package.mjs"
+    "new:package": "node scripts/new-package.mjs",
+    "release:auditor": "bash scripts/release-auditor.sh"
   },
   "devDependencies": {
     "lightningcss": "^1.32.0",
