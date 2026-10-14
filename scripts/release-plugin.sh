@@ -223,7 +223,13 @@ fi
 
 # --- GATE 2c: lib/ freshness — never publish a stale build ------------------
 [ -d "$PKG_DIR/lib" ] || die "missing $PKG_DIR/lib (build produced nothing)"
-if [ -d "$PKG_DIR/src" ]; then
+# Only meaningful when a build step actually turns src/ into lib/. For a package
+# that ships hand-written src/*.mjs verbatim (dsh-science-map), the import-closure
+# pass below copies them as-is, so there is no compiled output that could be
+# stale and the timestamp comparison would be a false alarm.
+if [ "$BUILD_LABEL" = "none (prebuilt lib/, no build step)" ]; then
+  printf '    no build step: lib/ ships as authored, nothing to be stale\n'
+elif [ -d "$PKG_DIR/src" ]; then
   NEWEST_SRC="$(find "$PKG_DIR/src" -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -1 || true)"
   NEWEST_LIB="$(find "$PKG_DIR/lib" -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -1 || true)"
   if [ -n "$NEWEST_SRC" ] && [ -n "$NEWEST_LIB" ]; then
@@ -231,8 +237,8 @@ if [ -d "$PKG_DIR/src" ]; then
       die "lib/ is older than src/ — refusing to publish a stale build"
     fi
   fi
+  printf '    lib/ is fresh relative to src/\n'
 fi
-printf '    lib/ is fresh relative to src/\n'
 
 # --- GATE 3: stage installable artifacts only ------------------------------
 log "staging installable artifacts"
