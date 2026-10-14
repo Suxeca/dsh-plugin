@@ -50,12 +50,42 @@ function walk(dir, out = []) {
   return out
 }
 
+// Build-only lifecycle hooks that scripts/release-plugin.sh drops from the
+// published manifest: the mirror is prebuilt, and pnpm RUNS prepare for git
+// dependencies, so keeping one would make every consumer rebuild. install-time
+// hooks are never dropped (they can carry real behaviour); the release refuses
+// to publish those instead.
+const BUILD_ONLY_HOOKS = ["prepare", "prepack", "prepublish", "prepublishOnly"]
+const INSTALL_HOOKS = ["preinstall", "install", "postinstall"]
+
+/**
+ * The manifest exactly as the mirror would ship it. Auditing the RAW manifest
+ * reports a lifecycle risk the published bytes never carry, which is why this
+ * pre-check used to disagree with a real audit_github_repos verdict on
+ * dsh-client-ui-session-switcher (LOW locally, NONE once published).
+ */
+function stagedManifest(rawText) {
+  const pkg = JSON.parse(rawText)
+  const scripts = pkg.scripts || {}
+  const isSet = (h) => typeof scripts[h] === "string" && scripts[h].trim().length > 0
+  const installHooks = INSTALL_HOOKS.filter(isSet)
+  const dropped = BUILD_ONLY_HOOKS.filter(isSet)
+  for (const h of dropped) delete scripts[h]
+  if (Object.keys(scripts).length === 0) delete pkg.scripts
+  else pkg.scripts = scripts
+  return { text: JSON.stringify(pkg, null, 2) + "\n", dropped, installHooks }
+}
+
 /** Assemble the bytes a github: install would actually receive. */
-function shippedFiles(PKG) {
+function shippedFiles(PKG, stagedPkgJson) {
   const shipped = []
   for (const f of ["package.json", "cordis.patch.yml", "README.md", "LICENSE"]) {
     const p = join(PKG, f)
-    if (existsSync(p)) shipped.push({ file: f, text: readFileSync(p, "utf8") })
+    if (!existsSync(p)) continue
+    const text = f === "package.json" && stagedPkgJson !== undefined
+      ? stagedPkgJson
+      : readFileSync(p, "utf8")
+    shipped.push({ file: f, text })
   }
   const libDir = join(PKG, "lib")
   if (existsSync(libDir)) {
@@ -70,17 +100,21 @@ function shippedFiles(PKG) {
 }
 
 async function checkOne(PKG) {
-  const meta = JSON.parse(readFileSync(join(PKG, "package.json"), "utf8"))
-  // A GitHubClient stub that serves the package files from disk instead of the CDN.
+  const rawManifest = readFileSync(join(PKG, "package.json"), "utf8")
+  const meta = JSON.parse(rawManifest)
+  // Audit the manifest the mirror would ship, not the raw one.
+  const staged = stagedManifest(rawManifest)
+  // A GitHubClient stub that serves the staged package files instead of the CDN.
   const stub = {
     async fetchRawFile(_o, _r, path) {
+      if (path === "package.json") return staged.text
       try { return readFileSync(join(PKG, path), "utf8") } catch { return null }
     },
   }
   const ev = await auditSupplyChain(stub, "local", "local", "main")
   const r = ev.result
 
-  const shipped = shippedFiles(PKG)
+  const shipped = shippedFiles(PKG, staged.text)
   const patch = shipped.find(s => s.file === "cordis.patch.yml")
   const entry = shipped.find(s => s.file === "lib/index.js")
   // The auditor scans cordis.patch.yml plus the resolved entry file only.
@@ -112,12 +146,12 @@ async function checkOne(PKG) {
   // Predicted grade for a fresh standalone repo: stage-1 = 100 (no star data),
   // so the supply-chain deduction is the whole story. A needs >= 90.
   const predicted = ev.forceGradeF ? "F" : (100 - ev.scoreDeduction >= 90 ? "A" : (100 - ev.scoreDeduction >= 75 ? "B" : "C"))
-  return { meta, ev, r, scannedHits, guardLeaks, predicted, absPathHits }
+  return { meta, ev, r, scannedHits, guardLeaks, predicted, absPathHits, lifecycleDropped: staged.dropped, installHooks: staged.installHooks }
 }
 
 const rows = []
 function compactRow(res) {
-  const { meta, ev, r, scannedHits, guardLeaks, predicted, absPathHits } = res
+  const { meta, ev, r, scannedHits, guardLeaks, predicted, absPathHits, lifecycleDropped } = res
   const th = (s, n) => String(s).padEnd(n)
   return [
     th(meta.name, 44),
@@ -129,6 +163,7 @@ function compactRow(res) {
     "entryHits=" + (scannedHits.length ? scannedHits.join("+") : "-"),
     " guardLeaks=" + (guardLeaks.length ? guardLeaks.map(g => g.label + "@" + g.files.length).join("+") : "-") + " ",
     "absPaths=" + (absPathHits.length ? "FAIL(" + absPathHits.length + ")" : "0"),
+    "stagedDrops=" + (lifecycleDropped.length ? lifecycleDropped.join(",") : "-"),
   ].join(" ")
 }
 
@@ -158,6 +193,7 @@ if (!arg) {
   console.log("entryHits  = markers found in the bytes the auditor actually scans (cordis.patch.yml + lib/index.js).")
   console.log("guardLeaks = markers anywhere in the shipped set; a release script must abort on these.")
   console.log("absPaths   = absolute local paths in the shipped set; 0 is required to publish.")
+  console.log("stagedDrops= build-only lifecycle hooks the mirror strips (a raw-manifest artifact, not a risk).")
 } else if (!process.env.PRECHECK_COMPACT) {
   for (const res of rows) {
     console.log(JSON.stringify({
@@ -169,6 +205,8 @@ if (!arg) {
       forceGradeF: res.ev.forceGradeF, criticalVerdict: res.ev.criticalVerdict ?? null,
       scannedEntryHits: res.scannedHits, guardMarkerLeaks: res.guardLeaks,
       absolutePathLeaks: res.absPathHits,
+      lifecycleDroppedInMirror: res.lifecycleDropped,
+      installTimeHooks: res.installHooks,
     }, null, 2))
   }
 }
