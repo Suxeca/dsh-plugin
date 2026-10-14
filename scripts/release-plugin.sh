@@ -155,6 +155,33 @@ elif [ "$HEAD_SHA" != "$REMOTE_HEAD" ]; then
 fi
 printf '    HEAD %s is on origin/%s\n' "${HEAD_SHA:0:7}" "$BRANCH"
 
+# --- DSH checkout: several build.sh rely on $DSH_CHECKOUT -------------------
+# The scaffolded build.sh scripts compile with the checkout's own tsc and link
+# its vendor packages, and they are not uniform about probing for it: some
+# auto-probe, others hard-require the variable. Resolve it once here (env first,
+# then the usual locations) and export it, so no package's build depends on how
+# the operator's shell happens to be set up.
+if [ -z "${DSH_CHECKOUT:-}" ]; then
+  for candidate in \
+    "${DSH_HARNESS_CHECKOUT:-}" \
+    "$HOME/Workspace/deepseek-harness" \
+    "$HOME/dsh-harness" \
+    "$HOME/dsh" \
+    "$HOME/.dsh/dsh-harness"
+  do
+    [ -n "$candidate" ] || continue
+    if [ -d "$candidate/packages" ] && [ -x "$candidate/node_modules/.bin/tsc" ]; then
+      export DSH_CHECKOUT="$candidate"
+      break
+    fi
+  done
+fi
+if [ -n "${DSH_CHECKOUT:-}" ]; then
+  printf '    DSH checkout: %s\n' "$DSH_CHECKOUT"
+else
+  warn "no DSH checkout found (set DSH_CHECKOUT) — builds that link the checkout may fail"
+fi
+
 log "building $PKG_DIR_NAME"
 
 # Two build conventions exist in this monorepo: the scaffolded packages ship a
