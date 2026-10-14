@@ -18,59 +18,6 @@
     "tests"
   ],
   "packages": {
-    "dsh-client-ui-session-switcher": {
-      "repo": "Suxeca/dsh-client-ui-session-switcher",
-      "description": "DSH session switcher: Ctrl+K command palette to create/archive/rename/search sessions, plus Ctrl+[/] cycling and VSCode-style shortcut layout.",
-      "topics": [
-        "deepseek-harness",
-        "dsh-plugin",
-        "cordis",
-        "ai-agent",
-        "session-management",
-        "command-palette",
-        "productivity"
-      ]
-    },
-    "dsh-external-dirs": {
-      "repo": "Suxeca/dsh-external-dirs",
-      "description": "DSH sidebar External Directories tab: browse read-only paths outside the session workspace and reuse the native file preview.",
-      "topics": [
-        "deepseek-harness",
-        "dsh-plugin",
-        "cordis",
-        "ai-agent",
-        "file-browser",
-        "sidebar",
-        "developer-tools"
-      ]
-    },
-    "dsh-pdf-drop": {
-      "repo": "Suxeca/dsh-pdf-drop",
-      "description": "Drop PDFs/documents onto the DSH Web composer: streamed upload into the current session workspace plus automatic @file mention insertion.",
-      "topics": [
-        "deepseek-harness",
-        "dsh-plugin",
-        "cordis",
-        "ai-agent",
-        "file-upload",
-        "drag-and-drop",
-        "pdf"
-      ]
-    },
-    "dsh-dev-probes": {
-      "repo": "Suxeca/dsh-dev-probes",
-      "description": "Read-only DSH plugin development probes: validate agent preset composition, verify client boot-graph presence, and preflight profile bundles before a restart.",
-      "topics": [
-        "deepseek-harness",
-        "dsh-plugin",
-        "cordis",
-        "ai-agent",
-        "developer-tools",
-        "preflight",
-        "diagnostics",
-        "plugin-development"
-      ]
-    },
     "dsh-science-map": {
       "repo": "Suxeca/dsh-science-map",
       "description": "Science Map for DSH: compiler and toolkit that turns a research reasoning flow into an evolving, gated evolution map.",
@@ -82,6 +29,33 @@
         "research",
         "knowledge-graph",
         "visualization"
+      ]
+    },
+    "dsh-literature-library": {
+      "repo": "Suxeca/dsh-literature-library",
+      "description": "DSH literature library: persistent, authenticated literature bookmarks and a local research knowledge base for academic review workflows.",
+      "topics": [
+        "deepseek-harness",
+        "dsh-plugin",
+        "cordis",
+        "cordis-plugin",
+        "ai-agent",
+        "ai-for-science",
+        "literature-review",
+        "academic-research"
+      ]
+    },
+    "dsh-client-ui-session-switcher": {
+      "repo": "Suxeca/dsh-client-ui-session-switcher",
+      "description": "DSH session switcher: Ctrl+K command palette to create/archive/rename/search sessions, plus Ctrl+[/] cycling and VSCode-style shortcut layout.",
+      "topics": [
+        "deepseek-harness",
+        "dsh-plugin",
+        "cordis",
+        "ai-agent",
+        "session-management",
+        "command-palette",
+        "productivity"
       ]
     },
     "dsh-note-board": {

@@ -11,7 +11,7 @@
     "cordis.patch.yml",
     "README.md"
   ],
-  "license": "BSD-3-Clause",
+  "license": "MIT",
   "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
   "peerDependencies": {
     "@deepseek-ai/dsh-llm": ">=0.0.1-rc <2",
