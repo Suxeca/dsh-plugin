@@ -1,0 +1,7 @@
+# Bundle patch for @suxeca/dsh-plugin-repo-auditor
+- insert:
+    - id: repo-auditor
+      name: '@suxeca/dsh-plugin-repo-auditor'
+      config:
+        enableInstallGate: true
+        sampleSize: 5

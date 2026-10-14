@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "GitHub Repo & Star Auditor",
+    "description": "Detect fake stars, bot networks, and hollow repositories based on CMU heuristic metrics with pre-execution safety gates"
+  }
+}
