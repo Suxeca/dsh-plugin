@@ -299,11 +299,33 @@ if [ -d "$PKG_DIR/locale" ]; then
   find "$PKG_DIR/locale" -maxdepth 1 -name '*.json' -exec cp {} "$TMP/locale/" \;
 fi
 
-# Belt and braces: no source, no tests, no dev scaffolding in the mirror.
-for forbidden in src tests node_modules; do
+# --- reachability: never publish an entry with a missing import -------------
+# Blanket-excluding src/ is right for compiled packages but wrong for a
+# hand-written one whose runtime lives in src/*.mjs; that mistake published a
+# dsh-science-map entry importing files the mirror did not contain. This walks
+# the relative-import closure from the entry, stages whatever it genuinely needs,
+# and aborts when something cannot be resolved.
+node "$ROOT/scripts/stage-reachable.mjs" "$TMP" "$PKG_DIR" \
+  || die "staged tree is not loadable: relative imports reachable from the entry are missing"
+
+# Belt and braces: tests and dev scaffolding never belong in a published mirror.
+# src/ is tolerated above only because the reachability pass proved a file in it
+# is required at runtime; an unreferenced src/ is never staged.
+for forbidden in tests node_modules test-units; do
   [ -e "$TMP/$forbidden" ] && die "refusing to publish: $forbidden/ reached the staged tree"
 done
 find "$TMP" -name '*.tsbuildinfo' -type f | grep -q . && die "refusing to publish: a *.tsbuildinfo survived staging"
+
+# Portability check (warning, not a gate): a hardcoded local path still loads,
+# but it silently only works on the machine that wrote it, so the mirror would
+# look fine and fail for everyone else. Surfaced rather than blocked, because
+# whether it matters depends on the code path.
+ABS_HITS="$(grep -rIlE '/home/[A-Za-z0-9._-]+/|/Users/[A-Za-z0-9._-]+/|[A-Z]:\\\\Users' "$TMP" 2>/dev/null || true)"
+if [ -n "$ABS_HITS" ]; then
+  printf 'release-plugin: WARNING: absolute local paths in the published bytes:\n' >&2
+  while IFS= read -r f; do printf '    %s\n' "${f#"$TMP"/}" >&2; done <<< "$ABS_HITS"
+  printf '    These work only on this machine. Consider an env var or config with a portable default.\n' >&2
+fi
 
 printf '    package.json, cordis.patch.yml, lib/ (%s files), LICENSE%s\n' \
   "$(find "$TMP/lib" -type f | wc -l | tr -d ' ')" \
