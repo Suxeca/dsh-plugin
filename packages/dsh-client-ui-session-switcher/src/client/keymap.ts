@@ -34,17 +34,6 @@ export interface Binding {
   meta: boolean
 }
 
-/** Human labels for the settings list. */
-export const ACTION_LABELS: Record<ActionId, string> = {
-  toggle: '打开面板',
-  next: '下一个对话',
-  prev: '上一个对话',
-  jumpToPinned: '切换至置顶对话',
-  toggleLeftSidebar: '折叠/展开左侧栏',
-  toggleRightSidebar: '折叠/展开右侧栏',
-  toggleSessionMap: '切换 对话/会话地图',
-}
-
 /** localStorage key backing the persisted keymap. */
 const KEYMAP_KEY = 'dsh.sessionSwitcher.keymap'
 

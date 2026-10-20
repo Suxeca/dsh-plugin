@@ -19,25 +19,27 @@ import type {
   WorkspaceListStateLike,
   WorkspaceViewLike,
 } from './port.ts'
+import { switcherStrings } from './i18n.ts'
 
 /** Display title: the persisted projection, or a placeholder before the first prompt. */
 export function titleOf(session: SessionSummaryLike): string {
   const title = session.title ?? session.displayTitle
   if (typeof title === 'string' && title.trim() !== '') return title
-  return '未命名对话'
+  return switcherStrings().untitled
 }
 
-/** Coarse relative time in Chinese, falling back to a compact date. */
+/** Coarse relative time in the active locale, falling back to a compact date. */
 export function relTime(ts: number | undefined): string {
   if (typeof ts !== 'number' || !Number.isFinite(ts)) return ''
+  const strings = switcherStrings()
   const diff = Date.now() - ts
   const minutes = Math.floor(diff / 60000)
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes} 分钟前`
+  if (minutes < 1) return strings.justNow
+  if (minutes < 60) return strings.minutesBefore(minutes)
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} 小时前`
+  if (hours < 24) return strings.hoursBefore(hours)
   const days = Math.floor(hours / 24)
-  if (days < 7) return `${days} 天前`
+  if (days < 7) return strings.daysBefore(days)
   const d = new Date(ts)
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
 }
@@ -430,6 +432,7 @@ export function paletteItems(
     if (staleRows.length === 0) {
       return activeRows
     }
+    const strings = switcherStrings()
     const isExpanded = expandedGroups?.has('__all__') === true
     if (isExpanded) {
       return [
@@ -440,7 +443,7 @@ export function paletteItems(
           key: 'folded-__all__',
           groupKey: '__all__',
           count: staleRows.length,
-          label: `收起已显示的 ${staleRows.length} 个较早对话`,
+          label: strings.collapseShownOlder(staleRows.length),
           expanded: true,
         },
       ]
@@ -452,7 +455,7 @@ export function paletteItems(
         key: 'folded-__all__',
         groupKey: '__all__',
         count: staleRows.length,
-        label: `已自动隐藏 ${staleRows.length} 个较早对话 (点击展开)`,
+        label: strings.hiddenOlder(staleRows.length),
         expanded: false,
       },
     ]
@@ -494,7 +497,7 @@ export function paletteItems(
           key: `folded-${groupKey}`,
           groupKey,
           count: stale.length,
-          label: `收起已显示的 ${stale.length} 个较早对话`,
+          label: switcherStrings().collapseShownOlder(stale.length),
           expanded: true,
         })
       }
@@ -505,7 +508,7 @@ export function paletteItems(
         key: `folded-${groupKey}`,
         groupKey,
         count: stale.length,
-        label: `已自动隐藏 ${stale.length} 个较早对话 (点击展开)`,
+        label: switcherStrings().hiddenOlder(stale.length),
         expanded: false,
       })
     }
@@ -518,7 +521,7 @@ export function paletteItems(
     }
   }
   if (stray.length > 0) {
-    appendSection(UNGROUPED_KEY, '未分组', stray)
+    appendSection(UNGROUPED_KEY, switcherStrings().ungrouped, stray)
   }
   return items
 }

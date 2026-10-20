@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { OpenStore } from './open-store.ts'
-import { SKIN_LABELS, type SkinName, loadSkin, nextSkin, saveSkin } from './skins.ts'
+import { type SkinName, loadSkin, nextSkin, saveSkin } from './skins.ts'
 import {
   UNGROUPED_KEY,
   archivedSessions,
@@ -34,9 +34,9 @@ import {
   type PaletteRow,
 } from './utils.ts'
 import type { SwitcherContext } from './port.ts'
+import { useSwitcherStrings } from './i18n.ts'
 import {
   ACTIONS,
-  ACTION_LABELS,
   bindingFromEvent,
   formatBinding,
   isModifierKey,
@@ -84,6 +84,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     () => ctx.workspaces.list.getSnapshot(),
   )
   const keymap = useSyncExternalStore(keymapStore.subscribe, keymapStore.getSnapshot)
+  const strings = useSwitcherStrings()
   const [query, setQuery] = useState('')
   /** Selection position within the row-only subsequence (headers are skipped). */
   const [index, setIndex] = useState(0)
@@ -322,10 +323,10 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
       } else if (ctx.workspaces.startSession) {
         ctx.workspaces.startSession(currentWorkspaceId)
       } else {
-        throw new Error('未提供新建会话功能')
+        throw new Error(strings.noNewSession)
       }
     } catch (err) {
-      setError(`新建会话失败：${err instanceof Error ? err.message : String(err)}`)
+      setError(strings.newSessionFailed(err instanceof Error ? err.message : String(err)))
     }
     openStore.close()
   }
@@ -334,7 +335,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
       ? ctx.uiWorkspace.archiveSession(sessionId)
       : ctx.workspaces.archiveSession(sessionId)
     void p.catch((err) => {
-      setError(`归档失败：${err instanceof Error ? err.message : String(err)}`)
+      setError(strings.archiveFailed(err instanceof Error ? err.message : String(err)))
     })
   }
   const unarchiveSession = (sessionId: string): void => {
@@ -342,7 +343,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
       ? ctx.uiWorkspace.unarchiveSession(sessionId)
       : ctx.workspaces.unarchiveSession(sessionId)
     void p.catch((err) => {
-      setError(`取消归档失败：${err instanceof Error ? err.message : String(err)}`)
+      setError(strings.unarchiveFailed(err instanceof Error ? err.message : String(err)))
     })
   }
   const startRename = (sessionId: string): void => {
@@ -367,16 +368,16 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
           { source: 'controllerOperation' },
           (ref) => ref.binding.session.rename(title),
         )
-        if (!result.ok) throw new Error(result.error?.message ?? '重命名被拒绝')
+        if (!result.ok) throw new Error(result.error?.message ?? strings.renameRejected)
       } else {
         const binding = ctx.sessions.binding(id)
         const session = binding?.session
-        if (session === undefined) throw new Error('会话不在线，无法重命名')
+        if (session === undefined) throw new Error(strings.renameOffline)
         const result = await session.rename(title)
-        if (!result.ok) throw new Error(result.error?.message ?? '重命名被拒绝')
+        if (!result.ok) throw new Error(result.error?.message ?? strings.renameRejected)
       }
     } catch (err) {
-      setError(`重命名失败：${err instanceof Error ? err.message : String(err)}`)
+      setError(strings.renameFailed(err instanceof Error ? err.message : String(err)))
     }
   }
   const enterSearch = (): void => {
@@ -423,7 +424,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     return (
       <div className={`${css.root} ${css.wrapper}`} data-skin={skinName}>
         <div className={css.toast} onClick={dismissToast}>
-          会话切换器已就绪 — Ctrl+Shift+K（Ctrl+K / Alt+K）打开面板
+          {strings.toastReady}
         </div>
       </div>
     )
@@ -551,7 +552,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     const isColored = hue !== null
     const wsStyle = isColored ? ({ '--ws-h': hue } as React.CSSProperties) : undefined
     const wsClass = isColored ? `${css.wsTag} ${css.wsTagColored}` : `${css.wsTag} ${css.wsTagUngrouped}`
-    const wsLabel = row.workspace === undefined ? '未分组' : row.workspace.title
+    const wsLabel = row.workspace === undefined ? strings.ungrouped : row.workspace.title
 
     const turns = turnCountOf(session)
     const timeLevel = timeRecencyLevel(session.updatedAt)
@@ -579,7 +580,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
             {turns !== undefined && (
               <>
                 <span className={css.metaDivider}>·</span>
-                <span className={css.metaItem}>{turns} 轮</span>
+                <span className={css.metaItem}>{strings.turns(turns)}</span>
               </>
             )}
             {timeString !== '' && (
@@ -593,9 +594,9 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
             )}
           </div>
         </div>
-        {isCurrent && <span className={`${css.tag} ${css.tagCurrent}`}>当前</span>}
-        {isPinned && <span className={`${css.tag} ${css.tagPinned}`}>📌 置顶</span>}
-        {archived && <span className={css.tag}>已归档</span>}
+        {isCurrent && <span className={`${css.tag} ${css.tagCurrent}`}>{strings.current}</span>}
+        {isPinned && <span className={`${css.tag} ${css.tagPinned}`}>{strings.pinned}</span>}
+        {archived && <span className={css.tag}>{strings.archived}</span>}
         <button
           type="button"
           className={css.rowAction}
@@ -603,9 +604,9 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
             e.stopPropagation()
             startRename(session.id)
           }}
-          title="重命名对话"
+          title={strings.renameTitle}
         >
-          重命名
+          {strings.rowRename}
         </button>
         {archived ? (
           <button
@@ -616,7 +617,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
               unarchiveSession(session.id)
             }}
           >
-            取消归档
+            {strings.rowUnarchive}
           </button>
         ) : (
           <button
@@ -627,7 +628,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
               archiveSession(session.id)
             }}
           >
-            归档
+            {strings.rowArchive}
           </button>
         )}
       </div>
@@ -647,20 +648,20 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
               ctx.openOfficialShortcuts?.()
             }}
           >
-            ⚡ 打开系统快捷键设置中心 (Ctrl+/)
+            {strings.officialShortcutsBtn}
           </button>
         </div>
         <div className={css.settingsHint}>
-          会话面板快捷键已接入 DSH 官方命令系统，可点击上方按钮前往系统中心统一修改并检测冲突；亦可在下方快速覆盖面板本地按键，Esc 取消。
+          {strings.settingsHint}
         </div>
         {ACTIONS.map((action) => {
           const binding = keymap.bindings[action]
           const active = captureAction === action
           return (
             <div key={action} className={css.settingsRow}>
-              <span className={css.settingsLabel}>{ACTION_LABELS[action]}</span>
+              <span className={css.settingsLabel}>{strings.actionLabels[action]}</span>
               {active ? (
-                <span className={css.captureHint}>按下新组合键…（Esc 取消）</span>
+                <span className={css.captureHint}>{strings.captureHint}</span>
               ) : (
                 <>
                   <kbd className={css.kbd}>{formatBinding(binding)}</kbd>
@@ -669,7 +670,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
                     className={css.rowAction}
                     onClick={() => startCapture(action)}
                   >
-                    改键
+                    {strings.changeKey}
                   </button>
                 </>
               )}
@@ -679,17 +680,17 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
       </div>
     )
   } else if (workspacesSnap.phase !== 'ready' || sessionsSnap.phase !== 'ready') {
-    body = <div className={css.empty}>加载中…</div>
+    body = <div className={css.empty}>{strings.loading}</div>
   } else if (rowPositions.length === 0) {
     body = (
       <div className={css.empty}>
         {searching
-          ? '没有匹配的对话'
+          ? strings.noMatches
           : showArchived
-            ? '没有已归档的对话'
+            ? strings.noArchived
             : workspaceItems.length === 0
-              ? '还没有工作区 — 按 N 新建，或在侧边栏添加工作区'
-              : '还没有对话 — 按 N 新建'}
+              ? strings.noWorkspaces
+              : strings.noConversations}
       </div>
     )
   } else {
@@ -716,7 +717,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
                 key={item.key}
                 className={css.foldedRow}
                 onClick={() => toggleGroupExpand(item.groupKey)}
-                title={item.expanded ? '点击收起较早对话' : '点击展开较早对话'}
+                title={item.expanded ? strings.collapseOlderTitle : strings.expandOlderTitle}
               >
                 <span className={css.foldedIcon}>{item.expanded ? '▼' : '▶'}</span>
                 <span className={css.foldedLabel}>{item.label}</span>
@@ -735,42 +736,42 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
   const hasPinned = pinnedIds.length > 0
   const hint = configuring ? (
     <div className={css.footer}>
-      <span className={css.footerAction}><Kbd>Esc</Kbd>返回</span>
+      <span className={css.footerAction}><Kbd>Esc</Kbd>{strings.close}</span>
     </div>
   ) : searching ? (
     <div className={css.footer}>
-      <span className={css.footerAction}><Kbd>↑↓</Kbd>选择<Kbd>Enter</Kbd>打开</span>
-      <span className={css.footerAction}><Kbd>Ctrl+N</Kbd>新建</span>
-      <span className={css.footerAction}><Kbd>Ctrl+R</Kbd>重命名</span>
-      <span className={css.footerAction}><Kbd>Alt+A</Kbd>归档</span>
-      {hasPinned && <span className={css.footerAction}><Kbd>Alt+P</Kbd>置顶</span>}
-      <span className={css.footerAction}><Kbd>Alt+H</Kbd>{hideOldSessions ? '显示全部' : '只看近期'}</span>
-      <span className={css.footerAction}><Kbd>Esc</Kbd>{query ? '清空' : '管理模式'}</span>
+      <span className={css.footerAction}><Kbd>↑↓</Kbd>{strings.select}<Kbd>Enter</Kbd>{strings.open}</span>
+      <span className={css.footerAction}><Kbd>Ctrl+N</Kbd>{strings.newShort}</span>
+      <span className={css.footerAction}><Kbd>Ctrl+R</Kbd>{strings.renameShort}</span>
+      <span className={css.footerAction}><Kbd>Alt+A</Kbd>{strings.archiveShort}</span>
+      {hasPinned && <span className={css.footerAction}><Kbd>Alt+P</Kbd>{strings.pinnedShort}</span>}
+      <span className={css.footerAction}><Kbd>Alt+H</Kbd>{hideOldSessions ? strings.showAll : strings.recentOnly}</span>
+      <span className={css.footerAction}><Kbd>Esc</Kbd>{query ? strings.clear : strings.manageMode}</span>
     </div>
   ) : (
     <div className={css.footer}>
-      <span className={css.footerAction}><Kbd>↑↓</Kbd>选择<Kbd>Enter</Kbd>打开</span>
-      <span className={css.footerAction}><Kbd>空格</Kbd>预览</span>
-      <span className={css.footerAction}><Kbd>S</Kbd>搜索</span>
-      <span className={css.footerAction}><Kbd>N</Kbd>新建</span>
-      {hasPinned && <span className={css.footerAction}><Kbd>P</Kbd>置顶</span>}
+      <span className={css.footerAction}><Kbd>↑↓</Kbd>{strings.select}<Kbd>Enter</Kbd>{strings.open}</span>
+      <span className={css.footerAction}><Kbd>{strings.space}</Kbd>{strings.preview}</span>
+      <span className={css.footerAction}><Kbd>S</Kbd>{strings.search}</span>
+      <span className={css.footerAction}><Kbd>N</Kbd>{strings.newShort}</span>
+      {hasPinned && <span className={css.footerAction}><Kbd>P</Kbd>{strings.pinnedShort}</span>}
       {showArchived ? (
         <>
-          <span className={css.footerAction}><Kbd>U</Kbd>取消归档</span>
-          <span className={css.footerAction}><Kbd>T</Kbd>返回列表</span>
+          <span className={css.footerAction}><Kbd>U</Kbd>{strings.rowUnarchive}</span>
+          <span className={css.footerAction}><Kbd>T</Kbd>{strings.backToList}</span>
         </>
       ) : (
         <>
-          <span className={css.footerAction}><Kbd>A</Kbd>归档</span>
-          {hasArchived && <span className={css.footerAction}><Kbd>T</Kbd>归档视图</span>}
+          <span className={css.footerAction}><Kbd>A</Kbd>{strings.archiveShort}</span>
+          {hasArchived && <span className={css.footerAction}><Kbd>T</Kbd>{strings.archivedView}</span>}
         </>
       )}
-      <span className={css.footerAction}><Kbd>R</Kbd>重命名</span>
-      <span className={css.footerAction}><Kbd>H</Kbd>{hideOldSessions ? '显示全部' : '只看近期'}</span>
-      <span className={css.footerAction}><Kbd>K</Kbd>快捷键</span>
-      <span className={css.footerAction}><Kbd>Esc</Kbd>{showArchived ? '返回列表' : '关闭'}</span>
+      <span className={css.footerAction}><Kbd>R</Kbd>{strings.renameShort}</span>
+      <span className={css.footerAction}><Kbd>H</Kbd>{hideOldSessions ? strings.showAll : strings.recentOnly}</span>
+      <span className={css.footerAction}><Kbd>K</Kbd>{strings.shortcuts}</span>
+      <span className={css.footerAction}><Kbd>Esc</Kbd>{showArchived ? strings.backToList : strings.close}</span>
       <span className={`${css.footerAction} ${css.footerPush}`}>
-        <Kbd>{toggleLabel}</Kbd>开关
+        <Kbd>{toggleLabel}</Kbd>{strings.toggle}
       </span>
     </div>
   )
@@ -781,23 +782,23 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
         ref={renameRef}
         className={css.renameInput}
         value={renameDraft}
-        placeholder="输入新标题…"
+        placeholder={strings.renamePlaceholder}
         onChange={(e) => setRenameDraft(e.target.value)}
       />
-      <button type="button" className={css.rowAction} onClick={() => void saveRename()}>保存</button>
-      <button type="button" className={css.rowAction} onClick={cancelRename}>取消</button>
+      <button type="button" className={css.rowAction} onClick={() => void saveRename()}>{strings.save}</button>
+      <button type="button" className={css.rowAction} onClick={cancelRename}>{strings.cancel}</button>
     </div>
   ) : searching ? (
     <input
       ref={inputRef}
       className={css.input}
-      placeholder="输入标题过滤对话…（支持快捷键：Ctrl+N新建 / Ctrl+R重命名 / Alt+H切换近期）"
+      placeholder={strings.searchPlaceholder}
       value={query}
       onChange={(e) => setQuery(e.target.value)}
     />
   ) : (
     <button type="button" className={css.searchStrip} onClick={enterSearch}>
-      按 S 搜索会话…
+      {strings.searchStrip}
     </button>
   )
 
@@ -811,24 +812,24 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     >
       <div ref={cardRef} tabIndex={-1} className={css.card} onKeyDown={onKeyDown}>
         <div className={css.header}>
-          <span className={css.title}>切换对话</span>
-          {showArchived && <span className={css.modeTag}>已归档</span>}
-          {searching && <span className={css.modeTag}>搜索</span>}
-          {renaming && <span className={css.modeTag}>重命名</span>}
-          {configuring && <span className={css.modeTag}>快捷键</span>}
+          <span className={css.title}>{strings.title}</span>
+          {showArchived && <span className={css.modeTag}>{strings.modeArchived}</span>}
+          {searching && <span className={css.modeTag}>{strings.search}</span>}
+          {renaming && <span className={css.modeTag}>{strings.modeRename}</span>}
+          {configuring && <span className={css.modeTag}>{strings.modeShortcuts}</span>}
           <button
             type="button"
             className={`${css.skinButton} ${hideOldSessions ? css.activeButton : ''}`}
             onClick={toggleHideOldSessions}
-            title={hideOldSessions ? '当前已隐藏 7 天前较早对话（点击查看全部）' : '当前显示全部对话（点击隐藏 7 天前较早对话）'}
+            title={hideOldSessions ? strings.hideOldTitleRecent : strings.hideOldTitleAll}
           >
-            {hideOldSessions ? '🕒 近期对话' : '🕒 全部对话'}
+            {hideOldSessions ? strings.hideOldRecent : strings.hideOldAll}
           </button>
           <button
             type="button"
             className={css.skinButton}
             onClick={configuring ? closeSettings : openSettings}
-            title="自定义快捷键"
+            title={strings.settingsTitle}
           >
             ⚙
           </button>
@@ -836,11 +837,11 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
             type="button"
             className={css.skinButton}
             onClick={cycleSkin}
-            title="切换皮肤（深色/浅色/高对比）"
+            title={strings.skinTitle}
           >
-            {SKIN_LABELS[skinName]}
+            {strings.skinLabels[skinName]}
           </button>
-          <button type="button" className={css.newButton} onClick={newConversation}>+ 新建对话</button>
+          <button type="button" className={css.newButton} onClick={newConversation}>{strings.newConversation}</button>
         </div>
         {strip}
         {body}

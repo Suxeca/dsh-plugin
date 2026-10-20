@@ -19,6 +19,7 @@ import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { createKeymapStore, matchesBinding } from './keymap.ts'
+import { installSwitcherLocale, switcherStrings } from './i18n.ts'
 import { createOpenStore } from './open-store.ts'
 import { currentSessionId, cycleAnchor, offsetTarget, pinnedSessions, sidebarOrder } from './utils.ts'
 import { Switcher } from './switcher.tsx'
@@ -190,6 +191,7 @@ export function apply(ctx: ClientContext): void {
 
   const openStore = createOpenStore()
   const keymapStore = createKeymapStore()
+  ctx.effect(() => installSwitcherLocale(ctx.get('locale')), 'session-switcher: locale')
   let container: HTMLDivElement | null = null
   let root: Root | null = null
   // Ctrl+X prefix sequence (Ctrl+X then M pulls up /model). Armed only
@@ -280,8 +282,8 @@ export function apply(ctx: ClientContext): void {
       try {
         const offToggle = officialShortcuts.register({
           id: 'sessionSwitcher.toggle',
-          label: () => '会话切换：打开/关闭面板',
-          aliases: ['session switcher', 'quick switch', 'ctrl k panel', '切换对话'],
+          label: () => switcherStrings().officialToggleLabel,
+          aliases: [...switcherStrings().aliasesToggle],
           defaults: {
             'web:linux': { code: 'KeyK', modifiers: ['primary'] },
             'web:windows': { code: 'KeyK', modifiers: ['primary'] },
@@ -296,8 +298,8 @@ export function apply(ctx: ClientContext): void {
         })
         const offNext = officialShortcuts.register({
           id: 'sessionSwitcher.next',
-          label: () => '会话切换：下一个会话',
-          aliases: ['next session', '下一个对话'],
+          label: () => switcherStrings().officialNextLabel,
+          aliases: [...switcherStrings().aliasesNext],
           defaults: {
             'web:linux': { code: 'BracketRight', modifiers: ['primary'] },
             'web:windows': { code: 'BracketRight', modifiers: ['primary'] },
@@ -312,8 +314,8 @@ export function apply(ctx: ClientContext): void {
         })
         const offPrev = officialShortcuts.register({
           id: 'sessionSwitcher.prev',
-          label: () => '会话切换：上一个会话',
-          aliases: ['previous session', '上一个对话'],
+          label: () => switcherStrings().officialPrevLabel,
+          aliases: [...switcherStrings().aliasesPrev],
           defaults: {
             'web:linux': { code: 'BracketLeft', modifiers: ['primary'] },
             'web:windows': { code: 'BracketLeft', modifiers: ['primary'] },
@@ -328,8 +330,8 @@ export function apply(ctx: ClientContext): void {
         })
         const offPinned = officialShortcuts.register({
           id: 'sessionSwitcher.jumpToPinned',
-          label: () => '会话切换：切换至置顶对话',
-          aliases: ['jump to pinned', 'pinned session', '置顶对话'],
+          label: () => switcherStrings().officialPinnedLabel,
+          aliases: [...switcherStrings().aliasesPinned],
           defaults: {
             'web:linux': { code: 'KeyP', modifiers: ['alt'] },
             'web:windows': { code: 'KeyP', modifiers: ['alt'] },
@@ -546,7 +548,7 @@ export function apply(ctx: ClientContext): void {
   document.body.appendChild(container)
   root = createRoot(container)
   root.render(createElement(Switcher, { ctx: switcherCtx, openStore, keymapStore }))
-  console.log('[session-switcher] ready — shortcuts are customizable from the palette (⚙ 快捷键)')
+  console.log(switcherStrings().readyMessage)
 
   ctx.effect(() => () => {
     disarmXPefix()

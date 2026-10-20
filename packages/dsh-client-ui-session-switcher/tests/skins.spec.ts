@@ -35,7 +35,8 @@ beforeEach(() => {
 // Import after the storage double is stubbed (the module only touches
 // localStorage inside its functions, so order is not load-bearing — but
 // explicit is safer than implicit).
-const { SKIN_LABELS, SKIN_ORDER, isSkinName, loadSkin, nextSkin, saveSkin } = await import('../src/client/skins.ts')
+const { SKIN_ORDER, isSkinName, loadSkin, nextSkin, saveSkin } = await import('../src/client/skins.ts')
+const { EN, ZH } = await import('../src/client/i18n.ts')
 
 describe('skins', () => {
   it('defaults to dark without a stored value', () => {
@@ -60,10 +61,13 @@ describe('skins', () => {
     expect(SKIN_ORDER).toEqual(['dark', 'light', 'highcontrast'])
   })
 
-  it('labels every skin in Chinese', () => {
-    expect(SKIN_LABELS.dark).toBe('深色')
-    expect(SKIN_LABELS.light).toBe('浅色')
-    expect(SKIN_LABELS.highcontrast).toBe('高对比')
+  it('labels every skin in both dictionaries', () => {
+    expect(ZH.skinLabels.dark).toBe('深色')
+    expect(ZH.skinLabels.light).toBe('浅色')
+    expect(ZH.skinLabels.highcontrast).toBe('高对比')
+    expect(EN.skinLabels.dark).toBe('Dark')
+    expect(EN.skinLabels.light).toBe('Light')
+    expect(EN.skinLabels.highcontrast).toBe('High contrast')
   })
 
   it('guards against non-name values', () => {

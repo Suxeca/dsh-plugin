@@ -1,8 +1,8 @@
 /**
  * Palette skins (深色/浅色/高对比). The color values live as CSS custom
  * properties in switcher.module.css (one `[data-skin=…]` block each); this
- * module only owns the name order, the display labels, and the localStorage
- * persistence. Flipping the `data-skin` attribute restyles the whole palette.
+ * module only owns the name order and the localStorage persistence; the
+ * display labels live in the locale dictionaries (i18n.ts). Flipping the `data-skin` attribute restyles the whole palette.
  * @module @suxeca/dsh-client-ui-session-switcher/client/skins
  */
 
@@ -11,13 +11,6 @@ export const SKIN_ORDER = ['dark', 'light', 'highcontrast'] as const
 
 /** A persisted skin name. */
 export type SkinName = (typeof SKIN_ORDER)[number]
-
-/** Display labels for the header skin button. */
-export const SKIN_LABELS: Record<SkinName, string> = {
-  dark: '深色',
-  light: '浅色',
-  highcontrast: '高对比',
-}
 
 /** localStorage key backing the persisted skin choice. */
 const SKIN_KEY = 'dsh.sessionSwitcher.skin'
