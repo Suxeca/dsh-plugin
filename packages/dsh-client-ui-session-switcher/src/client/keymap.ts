@@ -65,6 +65,54 @@ function canonicalKey(key: string): string {
   return key.length === 1 ? key.toLowerCase() : key
 }
 
+/**
+ * Map a physical `KeyboardEvent.code` to the layout-independent key token it
+ * represents. Returns `null` for codes that have no stable Latin equivalent
+ * (or for non-character keys), so the caller can fall back to `event.key`.
+ * This makes chords fire on the same physical key regardless of the active
+ * keyboard layout (Russian, etc.) instead of only on the Latin layout.
+ */
+export function codeToKey(code: string): string | null {
+  if (code === '') return null
+  if (code.startsWith('Key')) return code.slice(3).toLowerCase()
+  if (code.startsWith('Digit')) return code.slice(5)
+  const named: Record<string, string> = {
+    BracketLeft: '[',
+    BracketRight: ']',
+    Slash: '/',
+    Backslash: '\\',
+    // The extra key next to Enter on ISO layouts: '\' on Latin, '<' on a
+    // Russian layout. Naming it keeps one physical key one chord.
+    IntlBackslash: '\\',
+    Semicolon: ';',
+    Quote: "'",
+    Comma: ',',
+    Period: '.',
+    Minus: '-',
+    Equal: '=',
+    Backquote: '`',
+    Space: ' ',
+    Numpad0: '0', Numpad1: '1', Numpad2: '2', Numpad3: '3', Numpad4: '4',
+    Numpad5: '5', Numpad6: '6', Numpad7: '7', Numpad8: '8', Numpad9: '9',
+    NumpadAdd: '+', NumpadSubtract: '-', NumpadMultiply: '*',
+    NumpadDivide: '/', NumpadDecimal: '.',
+  }
+  return Object.prototype.hasOwnProperty.call(named, code) ? named[code] : null
+}
+
+/**
+ * Layout-independent key token for a keyboard event: prefer the physical key
+ * (`code`) when it maps to a known Latin token, fall back to `key` otherwise.
+ * Single characters are lower-cased, matching {@link canonicalKey}.
+ */
+export function eventKey(e: { key: string; code?: string }): string {
+  if (e.code !== undefined) {
+    const mapped = codeToKey(e.code)
+    if (mapped !== null) return canonicalKey(mapped)
+  }
+  return canonicalKey(e.key)
+}
+
 /** Is this event key a lone modifier (nothing to bind)? */
 export function isModifierKey(key: string): boolean {
   return MODIFIER_KEYS.has(key) || key === ''
@@ -140,12 +188,13 @@ export function saveBindings(bindings: Record<ActionId, Binding>): void {
  */
 export function matchesBinding(binding: Binding, e: {
   key: string
+  code?: string
   ctrlKey: boolean
   shiftKey: boolean
   altKey: boolean
   metaKey: boolean
 }): boolean {
-  return canonicalKey(e.key) === canonicalKey(binding.key)
+  return eventKey(e) === canonicalKey(binding.key)
     && e.ctrlKey === binding.ctrl
     && e.shiftKey === binding.shift
     && e.altKey === binding.alt
@@ -155,13 +204,14 @@ export function matchesBinding(binding: Binding, e: {
 /** Build a binding from a key event (assumes the key is not a lone modifier). */
 export function bindingFromEvent(e: {
   key: string
+  code?: string
   ctrlKey: boolean
   shiftKey: boolean
   altKey: boolean
   metaKey: boolean
 }): Binding {
   return {
-    key: canonicalKey(e.key),
+    key: eventKey(e),
     ctrl: e.ctrlKey,
     shift: e.shiftKey,
     alt: e.altKey,

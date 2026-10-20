@@ -37,6 +37,7 @@ const {
   bindingFromEvent,
   createKeymapStore,
   defaultBindings,
+  eventKey,
   formatBinding,
   isModifierKey,
   loadBindings,
@@ -46,6 +47,10 @@ const {
 
 function ev(key: string, mods: Partial<{ ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean }> = {}) {
   return { key, ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, ...mods }
+}
+
+function evCode(code: string, key: string, mods: Partial<{ ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean }> = {}) {
+  return { key, code, ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, ...mods }
 }
 
 describe('isModifierKey', () => {
@@ -93,6 +98,33 @@ describe('matchesBinding', () => {
   })
   it('does not match a different key', () => {
     expect(matchesBinding(b, ev('j', { ctrlKey: true }))).toBe(false)
+  })
+})
+
+describe('layout-independent matching (code)', () => {
+  const b = { key: 'k', ctrl: true, shift: false, alt: false, meta: false }
+  it('matches on a non-Latin layout via physical code', () => {
+    expect(matchesBinding(b, evCode('KeyK', 'к', { ctrlKey: true }))).toBe(true)
+  })
+  it('captures the Latin key from a non-Latin layout', () => {
+    expect(bindingFromEvent(evCode('KeyK', 'к', { ctrlKey: true }))).toMatchObject({ key: 'k', ctrl: true })
+  })
+  it('eventKey prefers code over localized key', () => {
+    expect(eventKey(evCode('KeyK', 'к'))).toBe('k')
+    expect(eventKey(ev('к'))).toBe('к')
+  })
+  it('maps punctuation and the ISO extra key by physical position', () => {
+    expect(eventKey(evCode('BracketRight', 'ъ'))).toBe(']')
+    expect(eventKey(evCode('IntlBackslash', '<'))).toBe('\\')
+    expect(eventKey(evCode('NumpadAdd', '+'))).toBe('+')
+  })
+  it('falls back to the typed key for codes without a Latin twin', () => {
+    expect(eventKey(evCode('IntlYen', '¥'))).toBe('¥')
+    expect(eventKey(evCode('F2', 'F2'))).toBe('F2')
+  })
+  it('matches a chord typed on a Russian layout', () => {
+    const cycle = { key: ']', ctrl: true, shift: false, alt: false, meta: false }
+    expect(matchesBinding(cycle, evCode('BracketRight', 'ъ', { ctrlKey: true }))).toBe(true)
   })
 })
 

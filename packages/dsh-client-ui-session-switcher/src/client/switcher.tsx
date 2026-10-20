@@ -38,6 +38,7 @@ import {
   ACTIONS,
   ACTION_LABELS,
   bindingFromEvent,
+  eventKey,
   formatBinding,
   isModifierKey,
   matchesBinding,
@@ -474,7 +475,7 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
     } else if (e.key === 'Enter') {
       e.preventDefault()
       if (selected !== null) openSession(selected.session.id)
-    } else if (!searching && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === ' ') {
+    } else if (!searching && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && eventKey(e) === ' ') {
       // Space previews the selected conversation (suppressed while searching
       // so the filter box can type spaces).
       e.preventDefault()
@@ -494,25 +495,25 @@ export function Switcher({ ctx, openStore, keymapStore }: SwitcherProps): JSX.El
       openStore.close()
     } else if (searching) {
       // Search mode chords: quick actions available without leaving the filter.
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && eventKey(e) === 'n') {
         e.preventDefault()
         newConversation()
-      } else if (((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'r') || e.key === 'F2') {
+      } else if (((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && eventKey(e) === 'r') || e.key === 'F2') {
         e.preventDefault()
         if (selected !== null) startRename(selected.session.id)
-      } else if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'a') {
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && eventKey(e) === 'a') {
         e.preventDefault()
         if (selected !== null) archiveSession(selected.session.id)
-      } else if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'h') {
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && eventKey(e) === 'h') {
         e.preventDefault()
         toggleHideOldSessions()
-      } else if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'p') {
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && eventKey(e) === 'p') {
         e.preventDefault()
         jumpToPinnedRow()
       }
     } else if (!searching && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
       // Management mode: single letters are actions, never input.
-      const k = e.key.toLowerCase()
+      const k = eventKey(e)
       if (k === 's') {
         e.preventDefault()
         enterSearch()

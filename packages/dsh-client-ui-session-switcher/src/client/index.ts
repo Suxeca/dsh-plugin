@@ -18,7 +18,7 @@ import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { createKeymapStore, matchesBinding } from './keymap.ts'
+import { createKeymapStore, eventKey, matchesBinding } from './keymap.ts'
 import { createOpenStore } from './open-store.ts'
 import { currentSessionId, cycleAnchor, offsetTarget, pinnedSessions, sidebarOrder } from './utils.ts'
 import { Switcher } from './switcher.tsx'
@@ -400,7 +400,7 @@ export function apply(ctx: ClientContext): void {
         e.preventDefault()
         cancelPreview()
         openStore.close()
-      } else if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && eventKey(e) === 'k') {
         e.preventDefault()
         cancelPreview()
         openStore.close()
@@ -413,7 +413,7 @@ export function apply(ctx: ClientContext): void {
     // each repeat deletes another segment/line. Ctrl+U is swallowed page-wide
     // (Chrome's "view source" default is disabled); outside an editable the
     // key only prevents the browser default and does nothing else.
-    if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'u') {
+    if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && eventKey(e) === 'u') {
       e.preventDefault()
       if (isEditableTarget(e.target)) {
         deleteLineBeforeCaret(e.target)
@@ -424,7 +424,7 @@ export function apply(ctx: ClientContext): void {
     // Ctrl+C in an editable WITHOUT a selection clears the whole draft
     // (Claude-Code-CLI-style cancel-input). With a selection the native copy
     // is preserved; outside editable fields copy is untouched too.
-    if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'c') {
+    if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && eventKey(e) === 'c') {
       if (isEditableTarget(e.target) && !hasSelection(e.target)) {
         e.preventDefault()
         clearEditable(e.target)
@@ -441,13 +441,13 @@ export function apply(ctx: ClientContext): void {
       // A cut with an active selection: let the browser handle Ctrl+X as-is.
       if (xPrefixArmed) disarmXPefix()
     } else {
-      if (xPrefixArmed && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'm') {
+      if (xPrefixArmed && !e.ctrlKey && !e.metaKey && !e.altKey && eventKey(e) === 'm') {
         e.preventDefault()
         disarmXPefix()
         insertModelCommand()
         return
       }
-      if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === 'x') {
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && eventKey(e) === 'x') {
         xPrefixArmed = true
         if (xPrefixTimer !== undefined) window.clearTimeout(xPrefixTimer)
         xPrefixTimer = window.setTimeout(disarmXPefix, 1500)
@@ -464,7 +464,7 @@ export function apply(ctx: ClientContext): void {
     }
     // Fixed safety fallback: Alt+K always opens the palette, so a mis-bound
     // toggle chord can never lock the palette out.
-    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && eventKey(e) === 'k') {
       e.preventDefault()
       guardedToggle()
       return
